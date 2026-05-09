@@ -12,7 +12,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
-#[command(about = "Append Autopoietic NixOS journal entries")]
+#[command(about = "Append Autopoietic OS journal entries")]
 struct Args {
     #[command(subcommand)]
     command: Command,

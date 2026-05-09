@@ -1,4 +1,4 @@
-# Autopoietic NixOS Agent Instructions
+# Autopoietic OS Agent Instructions
 
 このリポジトリで作業するagentは、実装や設計判断の前にADRを読む。
 

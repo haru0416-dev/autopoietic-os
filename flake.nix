@@ -1,5 +1,5 @@
 {
-  description = "Autopoietic NixOS research seed";
+  description = "Autopoietic OS research seed";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -35,17 +35,17 @@
         os-introspect = {
           type = "app";
           program = "${self.packages.${system}.autopoietic-tools}/bin/os-introspect";
-          meta.description = "Emit Autopoietic NixOS self-state JSON";
+          meta.description = "Emit Autopoietic OS self-state JSON";
         };
         mutation-journal = {
           type = "app";
           program = "${self.packages.${system}.autopoietic-tools}/bin/mutation-journal";
-          meta.description = "Append Autopoietic NixOS mutation and effect journal entries";
+          meta.description = "Append Autopoietic OS mutation and effect journal entries";
         };
         mutation-runner = {
           type = "app";
           program = "${self.packages.${system}.autopoietic-tools}/bin/mutation-runner";
-          meta.description = "Verify Autopoietic NixOS mutation proposals offline";
+          meta.description = "Verify Autopoietic OS mutation proposals offline";
         };
         default = self.apps.${system}.os-introspect;
       });

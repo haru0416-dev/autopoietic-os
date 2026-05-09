@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://autopoietic-nixos.local/schemas/mutation-promotion.schema.json",
+  "$id": "https://autopoietic-os.local/schemas/mutation-promotion.schema.json",
   "type": "object",
   "allOf": [
     {

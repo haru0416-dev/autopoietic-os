@@ -13,7 +13,7 @@ use promoter::{PromoteConfig, promote_and_record};
 use verifier::{VerifyConfig, verify_and_record};
 
 #[derive(Debug, Parser)]
-#[command(about = "Verify Autopoietic NixOS mutation proposals without live mutation")]
+#[command(about = "Verify Autopoietic OS mutation proposals without live mutation")]
 struct Args {
     #[command(subcommand)]
     command: Command,

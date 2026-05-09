@@ -1,6 +1,6 @@
-# Autopoietic NixOS
+# Autopoietic OS
 
-Autopoietic NixOS is an experimental NixOS seed for treating the system configuration as a genome: AI proposes mutations as Nix patches, verifier loops test them, and accepted generations become an evolutionary lineage.
+Autopoietic OS is an experimental NixOS seed for treating the system configuration as a genome: AI proposes mutations as Nix patches, verifier loops test them, and accepted generations become an evolutionary lineage.
 
 The long-term target is a complete, minimal NixOS-based distribution that can be distributed as an ISO image, not merely a set of tools installed on an existing machine. Existing NixOS components are reused when they fit; when they are too large or imprecise, they are distilled or replaced with purpose-built organs.
 

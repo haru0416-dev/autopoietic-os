@@ -21,7 +21,7 @@ P-1 includes:
 - the Rust workspace with initial `os-introspect` and `mutation-journal` CLIs;
 - memory schemas and JSONL ledgers;
 - a minimal ISO host configuration;
-- a flake ISO package output that can build an Autopoietic NixOS ISO artifact.
+- a flake ISO package output that can build an Autopoietic OS ISO artifact.
 
 P-1 is complete when:
 

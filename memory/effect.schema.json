@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://autopoietic-nixos.local/schemas/effect.schema.json",
+  "$id": "https://autopoietic-os.local/schemas/effect.schema.json",
   "type": "object",
   "required": ["effect_id", "timestamp", "mutation_id", "type", "target", "reversible"],
   "properties": {

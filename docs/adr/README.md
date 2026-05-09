@@ -1,6 +1,6 @@
 # ADR
 
-このディレクトリには Autopoietic NixOS の Architecture Decision Record を置く。
+このディレクトリには Autopoietic OS の Architecture Decision Record を置く。
 
 ADR は、あとから「なぜそうしたのか」を読むための記録であり、実装の説明書ではない。決定、捨てた選択肢、受け入れた不利益を短く残す。
 

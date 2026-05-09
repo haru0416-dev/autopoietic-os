@@ -5,7 +5,7 @@ let
 in
 {
   options.autopoietic = {
-    enable = lib.mkEnableOption "Autopoietic NixOS core";
+    enable = lib.mkEnableOption "Autopoietic OS core";
 
     identity = {
       host = lib.mkOption {

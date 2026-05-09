@@ -1,6 +1,6 @@
 # ISO boot verification — 2026-05-08, updated 2026-05-09
 
-This note records executable Linux-level verification for the Autopoietic NixOS ISO configuration and production ISO artifact.
+This note records executable Linux-level verification for the Autopoietic OS ISO configuration and production ISO artifact.
 
 ## Scope
 

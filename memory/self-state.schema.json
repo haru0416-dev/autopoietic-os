@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://autopoietic-nixos.local/schemas/self-state.schema.json",
+  "$id": "https://autopoietic-os.local/schemas/self-state.schema.json",
   "type": "object",
   "required": ["identity", "genome", "body", "memory"],
   "properties": {

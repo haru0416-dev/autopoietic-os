@@ -5,7 +5,7 @@
 
 ## Context
 
-Autopoietic NixOSは、NixOS、nixpkgs、Home Manager、Rust、systemd、VM test、ISO image generationなど、多くの外部仕様に依存する。
+Autopoietic OSは、NixOS、nixpkgs、Home Manager、Rust、systemd、VM test、ISO image generationなど、多くの外部仕様に依存する。
 
 これらは時間とともに変わる。CLI option、NixOS module option、Rust crate API、flake outputの形、systemd unitの挙動、nixpkgsのpackage名、ISO生成方法は、記憶だけで扱うには危険である。
 

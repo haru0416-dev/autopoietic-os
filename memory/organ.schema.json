@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://autopoietic-nixos.local/schemas/organ.schema.json",
+  "$id": "https://autopoietic-os.local/schemas/organ.schema.json",
   "type": "object",
   "required": ["name", "type", "source", "purpose"],
   "properties": {

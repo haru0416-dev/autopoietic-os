@@ -9,7 +9,7 @@ P0では、observe-only ISOがbootできることを確認した。P1では、mu
 
 次の大きな問題は、検証済みmutationをどのように実際のOS generationへ接続するかである。ただし、その前にP2でVM-tested promotionを定義する必要がある。P3はP2を前提に、VMで昇格可能と判断されたmutationを、install workflowとgeneration lineageへつなぐ段階として切る。
 
-P3で扱うinstall workflowは、完全なinstaller UIではない。目的は、Autopoietic NixOSを対象ディスクへ導入し、導入後のsystem generationとmutation IDを追跡できる最小経路を作ることである。
+P3で扱うinstall workflowは、完全なinstaller UIではない。目的は、Autopoietic OSを対象ディスクへ導入し、導入後のsystem generationとmutation IDを追跡できる最小経路を作ることである。
 
 ## Decision
 

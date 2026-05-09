@@ -5,7 +5,7 @@
 
 ## Context
 
-Autopoietic NixOSでは、AIがNix構成、Rust製CLI、systemd unit、memory schema、mutation runnerを読み、次の変更案を作る。
+Autopoietic OSでは、AIがNix構成、Rust製CLI、systemd unit、memory schema、mutation runnerを読み、次の変更案を作る。
 
 このとき、コードや設定の「なぜ」を曖昧なまま推測すると、その誤解が次のmutation、ADR、memory、organ registryへ伝播する。特にこのプロジェクトでは、過去の分析が未来の変更判断の材料になるため、浅い要約やそれらしい意図の捏造は通常のコードレビューより危険である。
 

@@ -5,7 +5,7 @@
 
 ## Context
 
-P0では、Autopoietic NixOS ISOが単にbuildできるだけでなく、observe-only systemとしてboot検証済みである必要がある。
+P0では、Autopoietic OS ISOが単にbuildできるだけでなく、observe-only systemとしてboot検証済みである必要がある。
 
 ただし、検証には二つの性質がある。
 

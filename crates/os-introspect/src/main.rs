@@ -15,7 +15,7 @@ use clap::Parser;
 use serde_json::Value;
 
 #[derive(Debug, Parser)]
-#[command(about = "Emit Autopoietic NixOS self-state JSON")]
+#[command(about = "Emit Autopoietic OS self-state JSON")]
 struct Args {
     #[arg(long, default_value = ".")]
     root: PathBuf,

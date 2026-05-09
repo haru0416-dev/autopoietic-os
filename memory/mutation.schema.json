@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://autopoietic-nixos.local/schemas/mutation.schema.json",
+  "$id": "https://autopoietic-os.local/schemas/mutation.schema.json",
   "type": "object",
   "required": ["mutation_id", "timestamp", "goal", "status", "phase"],
   "properties": {

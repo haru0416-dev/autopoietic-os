@@ -15,7 +15,7 @@ in
 
   config = lib.mkIf (cfg.enable && cfg.agentRuntime.enable) {
     systemd.services.autopoietic-agent = {
-      description = "Autopoietic NixOS agent runtime";
+      description = "Autopoietic OS agent runtime";
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
         Type = "simple";

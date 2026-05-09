@@ -1,6 +1,6 @@
 # Anti-goals
 
-Autopoietic NixOS intentionally does not start as:
+Autopoietic OS intentionally does not start as:
 
 - a natural-language shell;
 - a chat UI for Linux commands;

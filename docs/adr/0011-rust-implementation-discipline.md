@@ -5,7 +5,7 @@
 
 ## Context
 
-Autopoietic NixOSの中核CLIはRust workspaceで実装する。これらのCLIは、自己観測、mutation journal、effect ledger、将来のmutation-runnerやos-mutatorを担う。
+Autopoietic OSの中核CLIはRust workspaceで実装する。これらのCLIは、自己観測、mutation journal、effect ledger、将来のmutation-runnerやos-mutatorを担う。
 
 ここはOSの内部器官にあたる。動けばよいという実装ではなく、長く読めて、検証できて、Nix構成やmemory schemaとずれにくい書き方が必要になる。
 

@@ -5,7 +5,7 @@
 
 ## Context
 
-P0では、Autopoietic NixOS ISOがobserve-only systemとしてbootできることを確認した。次の段階では、mutationを扱う入口を作る必要がある。
+P0では、Autopoietic OS ISOがobserve-only systemとしてbootできることを確認した。次の段階では、mutationを扱う入口を作る必要がある。
 
 ただし、ここでいきなりlive systemを変更すると、失敗時の観測、journal、rollback境界がまだ弱い。AIによる自動patch生成も、検証器官がない状態では品質を判断しにくい。
 

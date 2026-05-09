@@ -1,6 +1,6 @@
 # Manifesto
 
-Autopoietic NixOS is not an application launcher with an AI assistant. It is a research environment for growing the operating system itself.
+Autopoietic OS is not an application launcher with an AI assistant. It is a research environment for growing the operating system itself.
 
 The operating system is treated as a living configuration body:
 

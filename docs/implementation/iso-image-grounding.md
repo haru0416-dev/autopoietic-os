@@ -1,6 +1,6 @@
 # ISO image grounding — 2026-05-08
 
-This note records the external-grounding and semantic constraints used for the first Autopoietic NixOS ISO output.
+This note records the external-grounding and semantic constraints used for the first Autopoietic OS ISO output.
 
 ## Lightweight semantic review
 

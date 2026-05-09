@@ -11,7 +11,7 @@
 
 ## Decision
 
-Autopoietic NixOSの中核CLIはRust workspaceで実装する。
+Autopoietic OSの中核CLIはRust workspaceで実装する。
 
 想定する初期workspaceは次の通り。
 
