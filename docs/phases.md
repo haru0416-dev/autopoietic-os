@@ -62,7 +62,7 @@ Post-P0 phases should be proposed only after the previous phase has executable v
 - P3: install workflow and generation lineage linking;
 - P4: organ registry and decay review.
 
-These names are placeholders until each phase has an ADR or implementation plan.
+P1 and P3 now have ADR boundaries. P2 still needs its own ADR before implementation.
 
 ## P1: offline mutation verifier
 
@@ -79,3 +79,21 @@ P1 requires:
 - documentation that P1 is still not autonomous mutation — documented here and in `docs/implementation/mutation-verifier.md`.
 
 P1 does not include AI patch generation, live activation, automatic revert, generation lineage promotion, install workflow, GUI, or heavy agent runtime.
+
+## P3: install workflow and generation lineage linking
+
+P3 connects a VM-promoted mutation to an installed system generation. Its scope is fixed by [ADR 0014](adr/0014-p3-install-workflow-and-generation-lineage-boundary.md).
+
+P3 requires P2 to exist first. P2 must define how a P1 `verified` mutation becomes VM-tested and eligible for promotion. P3 does not bypass that gate.
+
+P3 requires:
+
+- a minimal install workflow with explicit target root selection;
+- dry-run or plan output before any install-side effect;
+- no destructive disk or live-system operation without explicit approval;
+- generation lineage records linking mutation ID, parent generation, resulting generation, activation or install result, changed organs, and verifier evidence;
+- installed-system Autopoietic memory seed for identity, mutation results, generation ledger, and effect ledger;
+- post-install verification that the installed root can be evaluated and that lineage entries are readable;
+- effect ledger entries for non-Nix side effects caused by install workflow steps.
+
+P3 does not include AI patch generation, live autonomous mutation, automatic revert, organ registry promotion, full installer UX, partitioning wizard, GUI, or remote/cloud install.
