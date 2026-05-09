@@ -10,6 +10,7 @@ use autopoietic_core::{
     VerificationCheckStatus, VerificationStatus,
 };
 use chrono::Utc;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -22,8 +23,8 @@ pub(crate) struct VerifyConfig {
     pub(crate) skip_default_checks: bool,
 }
 
-struct Worktree {
-    path: PathBuf,
+pub(crate) struct Worktree {
+    pub(crate) path: PathBuf,
     keep: bool,
 }
 
@@ -42,7 +43,7 @@ pub(crate) fn verify_and_record(config: VerifyConfig) -> Result<MutationVerifica
     Ok(record)
 }
 
-fn read_proposal(path: &Path) -> Result<MutationProposal> {
+pub(crate) fn read_proposal(path: &Path) -> Result<MutationProposal> {
     let bytes =
         fs::read(path).with_context(|| format!("failed to read proposal {}", path.display()))?;
     serde_json::from_slice(&bytes)
@@ -54,18 +55,42 @@ fn verify_proposal(
     config: &VerifyConfig,
 ) -> MutationVerificationRecord {
     let mut checks = Vec::new();
+    let root_fingerprint = root_fingerprint(&config.root, &config.proposal_path, proposal)
+        .unwrap_or_else(|error| format!("unavailable:{error:#}"));
     let patch = match read_proposal_patch(proposal, &config.proposal_path) {
         Ok(patch) => patch,
         Err(PatchInputError::Rejected(reason)) => {
-            return record(proposal, VerificationStatus::Rejected, reason, checks);
+            return record(
+                proposal,
+                VerificationStatus::Rejected,
+                reason,
+                "unavailable:patch-input-rejected".to_owned(),
+                root_fingerprint,
+                checks,
+            );
         }
         Err(PatchInputError::Error(reason)) => {
-            return record(proposal, VerificationStatus::Error, reason, checks);
+            return record(
+                proposal,
+                VerificationStatus::Error,
+                reason,
+                "unavailable:patch-input-error".to_owned(),
+                root_fingerprint,
+                checks,
+            );
         }
     };
     if let Err(reason) = validate_proposal(proposal, &patch) {
-        return record(proposal, VerificationStatus::Rejected, reason, checks);
+        return record(
+            proposal,
+            VerificationStatus::Rejected,
+            reason,
+            proposal_fingerprint(proposal, &patch),
+            root_fingerprint,
+            checks,
+        );
     }
+    let fingerprint = proposal_fingerprint(proposal, &patch);
 
     let worktree = match create_worktree(config) {
         Ok(worktree) => worktree,
@@ -74,6 +99,8 @@ fn verify_proposal(
                 proposal,
                 VerificationStatus::Error,
                 format!("failed to create isolated worktree: {error:#}"),
+                fingerprint,
+                root_fingerprint,
                 checks,
             );
         }
@@ -87,6 +114,8 @@ fn verify_proposal(
             proposal,
             VerificationStatus::Rejected,
             "patch application failed".to_owned(),
+            fingerprint,
+            root_fingerprint,
             checks,
         );
     }
@@ -115,6 +144,8 @@ fn verify_proposal(
                     "check command '{}' is not allowed in P1 offline verification",
                     check.command
                 ),
+                fingerprint,
+                root_fingerprint,
                 checks,
             );
         }
@@ -129,6 +160,8 @@ fn verify_proposal(
             proposal,
             VerificationStatus::Verified,
             "all verifier checks passed".to_owned(),
+            fingerprint,
+            root_fingerprint,
             checks,
         )
     } else {
@@ -136,17 +169,19 @@ fn verify_proposal(
             proposal,
             VerificationStatus::Rejected,
             "one or more verifier checks failed".to_owned(),
+            fingerprint,
+            root_fingerprint,
             checks,
         )
     }
 }
 
-enum PatchInputError {
+pub(crate) enum PatchInputError {
     Rejected(String),
     Error(String),
 }
 
-fn read_proposal_patch(
+pub(crate) fn read_proposal_patch(
     proposal: &MutationProposal,
     proposal_path: &Path,
 ) -> Result<String, PatchInputError> {
@@ -209,7 +244,7 @@ fn proposal_directory(proposal_path: &Path) -> Result<&Path, String> {
     }
 }
 
-fn validate_proposal(proposal: &MutationProposal, patch: &str) -> Result<(), String> {
+pub(crate) fn validate_proposal(proposal: &MutationProposal, patch: &str) -> Result<(), String> {
     if proposal.schema_version != "0.1.0" {
         return Err(format!(
             "unsupported proposal schema_version '{}'",
@@ -251,6 +286,145 @@ fn validate_proposal(proposal: &MutationProposal, patch: &str) -> Result<(), Str
         }
     }
     Ok(())
+}
+
+pub(crate) fn proposal_fingerprint(proposal: &MutationProposal, patch: &str) -> String {
+    fn update(hasher: &mut Sha256, value: &str) {
+        hasher.update((value.len() as u64).to_le_bytes());
+        hasher.update(value.as_bytes());
+    }
+
+    let mut hasher = Sha256::new();
+    update(&mut hasher, "autopoietic-proposal-v1");
+    update(&mut hasher, &proposal.schema_version);
+    update(&mut hasher, &proposal.mutation_id);
+    update(&mut hasher, &proposal.goal);
+    update(&mut hasher, &proposal.phase);
+    for path in &proposal.changed_paths {
+        update(&mut hasher, path);
+    }
+    for check in &proposal.expected_checks {
+        update(&mut hasher, &check.name);
+        update(&mut hasher, &check.command);
+        for arg in &check.args {
+            update(&mut hasher, arg);
+        }
+    }
+    update(&mut hasher, proposal.patch_path.as_deref().unwrap_or(""));
+    update(&mut hasher, patch);
+    for effect in &proposal.side_effects {
+        update(&mut hasher, &effect.effect_type);
+        update(&mut hasher, &effect.target);
+        update(&mut hasher, &effect.reversible.to_string());
+        update(&mut hasher, &effect.compensation);
+        update(&mut hasher, &format!("{:?}", effect.risk));
+    }
+    for (key, value) in &proposal.metadata {
+        update(&mut hasher, key);
+        update(&mut hasher, value);
+    }
+    format!("sha256:{}", to_hex(&hasher.finalize()))
+}
+
+pub(crate) fn root_fingerprint(
+    root: &Path,
+    proposal_path: &Path,
+    proposal: &MutationProposal,
+) -> Result<String> {
+    let root = root
+        .canonicalize()
+        .with_context(|| format!("failed to canonicalize root {}", root.display()))?;
+    let proposal_path = resolve_path_for_guard(proposal_path)?;
+    let patch_path = proposal
+        .patch_path
+        .as_deref()
+        .and_then(|path| {
+            proposal_directory(proposal_path.as_path())
+                .ok()
+                .map(|dir| dir.join(path))
+        })
+        .map(|path| resolve_path_for_guard(&path))
+        .transpose()?;
+    let mut files = Vec::new();
+    collect_fingerprint_files(
+        &root,
+        &root,
+        &proposal_path,
+        patch_path.as_deref(),
+        &mut files,
+    )?;
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"autopoietic-root-v1");
+    for (relative, absolute) in files {
+        hasher.update((relative.len() as u64).to_le_bytes());
+        hasher.update(relative.as_bytes());
+        let bytes = fs::read(&absolute).with_context(|| {
+            format!(
+                "failed to read root fingerprint file {}",
+                absolute.display()
+            )
+        })?;
+        hasher.update((bytes.len() as u64).to_le_bytes());
+        hasher.update(bytes);
+    }
+    Ok(format!("sha256:{}", to_hex(&hasher.finalize())))
+}
+
+fn collect_fingerprint_files(
+    root: &Path,
+    current: &Path,
+    proposal_path: &Path,
+    patch_path: Option<&Path>,
+    files: &mut Vec<(String, PathBuf)>,
+) -> Result<()> {
+    for entry in fs::read_dir(current)
+        .with_context(|| format!("failed to read directory {}", current.display()))?
+    {
+        let entry =
+            entry.with_context(|| format!("failed to read entry in {}", current.display()))?;
+        let file_name = entry.file_name();
+        if should_skip(&file_name) {
+            continue;
+        }
+        let path = entry.path();
+        let metadata = entry
+            .metadata()
+            .with_context(|| format!("failed to stat {}", path.display()))?;
+        if metadata.is_dir() {
+            collect_fingerprint_files(root, &path, proposal_path, patch_path, files)?;
+        } else if metadata.is_file() {
+            let guarded = resolve_path_for_guard(&path)?;
+            if guarded == proposal_path || patch_path.is_some_and(|patch| guarded == patch) {
+                continue;
+            }
+            let relative = guarded
+                .strip_prefix(root)
+                .with_context(|| format!("failed to relativize {}", guarded.display()))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            if is_volatile_ledger(&relative) {
+                continue;
+            }
+            files.push((relative, guarded));
+        }
+    }
+    Ok(())
+}
+
+fn is_volatile_ledger(relative: &str) -> bool {
+    relative.ends_with(".jsonl")
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut value = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        value.push(HEX[(byte >> 4) as usize] as char);
+        value.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    value
 }
 
 fn validate_relative_path(path: &str) -> Result<(), String> {
@@ -300,7 +474,7 @@ fn patch_paths(patch: &str) -> Result<Vec<String>, String> {
     Ok(values)
 }
 
-fn apply_patch_to_worktree(worktree: &Path, patch: &str) -> VerificationCheckResult {
+pub(crate) fn apply_patch_to_worktree(worktree: &Path, patch: &str) -> VerificationCheckResult {
     match apply_unified_patch(worktree, patch) {
         Ok(()) => VerificationCheckResult {
             name: "apply-patch".to_owned(),
@@ -482,7 +656,7 @@ fn ensure_old_line(lines: &[String], index: usize, expected: &str) -> Result<(),
     }
 }
 
-fn create_worktree(config: &VerifyConfig) -> Result<Worktree> {
+pub(crate) fn create_worktree(config: &VerifyConfig) -> Result<Worktree> {
     let root = config
         .root
         .canonicalize()
@@ -582,7 +756,7 @@ fn should_skip(file_name: &OsStr) -> bool {
     matches!(file_name.to_str(), Some(".git" | "target" | "result"))
         || file_name
             .to_str()
-            .is_some_and(|name| name.starts_with("result-"))
+            .is_some_and(|name| name.starts_with("result-") || name.ends_with(".jsonl"))
 }
 
 fn is_allowed_check(check: &ProposalCheck, worktree: &Path) -> bool {
@@ -607,7 +781,7 @@ fn is_safe_test_arg(arg: &str) -> bool {
     validate_relative_path(arg).is_ok()
 }
 
-fn run_command(worktree: &Path, check: &ProposalCheck) -> VerificationCheckResult {
+pub(crate) fn run_command(worktree: &Path, check: &ProposalCheck) -> VerificationCheckResult {
     let output = Command::new(&check.command)
         .args(&check.args)
         .current_dir(worktree)
@@ -646,6 +820,8 @@ fn record(
     proposal: &MutationProposal,
     status: VerificationStatus,
     reason: String,
+    proposal_fingerprint: String,
+    root_fingerprint: String,
     checks: Vec<VerificationCheckResult>,
 ) -> MutationVerificationRecord {
     MutationVerificationRecord {
@@ -660,6 +836,8 @@ fn record(
         phase: proposal.phase.clone(),
         status,
         reason,
+        proposal_fingerprint,
+        root_fingerprint,
         changed_paths: proposal.changed_paths.clone(),
         checks,
         side_effects: proposal.side_effects.clone(),
@@ -667,7 +845,7 @@ fn record(
     }
 }
 
-fn append_jsonl<T: serde::Serialize>(path: &Path, entry: &T) -> Result<()> {
+pub(crate) fn append_jsonl<T: serde::Serialize>(path: &Path, entry: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create journal directory {}", parent.display()))?;
@@ -766,6 +944,8 @@ mod tests {
             .expect("valid proposal should verify");
 
         assert_eq!(record.status, VerificationStatus::Verified);
+        assert!(record.proposal_fingerprint.starts_with("sha256:"));
+        assert!(record.root_fingerprint.starts_with("sha256:"));
         assert!(journal_path.exists());
         assert!(
             fs::read_to_string(journal_path)

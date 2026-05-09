@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-and-schema:
+    name: Rust and schema checks
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Ensure Rust components are installed
+        run: rustup component add rustfmt clippy
+
+      - name: Check Rust formatting
+        run: cargo fmt --check
+
+      - name: Check Rust workspace
+        run: cargo check --workspace
+
+      - name: Lint Rust workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test Rust workspace
+        run: cargo test --workspace
+
+      - name: Validate JSON schemas and ledgers parse
+        run: |
+          python -m json.tool memory/mutation-proposal.schema.json >/dev/null
+          python -m json.tool memory/mutation-result.schema.json >/dev/null
+          python -m json.tool memory/mutation-promotion.schema.json >/dev/null
+          python -m json.tool memory/mutation.schema.json >/dev/null
+          python -m json.tool memory/effect.schema.json >/dev/null
+          python -m json.tool memory/generation.schema.json >/dev/null
+          python -m json.tool memory/organ.schema.json >/dev/null
+          python -m json.tool memory/self-state.schema.json >/dev/null
+          for ledger in memory/*.jsonl; do
+            while IFS= read -r line; do
+              [ -z "$line" ] || python -m json.tool <<<"$line" >/dev/null
+            done < "$ledger"
+          done
+
+  nix-package:
+    name: Nix package build
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            system-features = nixos-test benchmark big-parallel
+
+      - name: Show Nix version
+        run: nix --version
+
+      - name: Build Rust tools with Nix
+        run: nix build --no-link --print-out-paths --no-write-lock-file "path:${GITHUB_WORKSPACE}#packages.x86_64-linux.autopoietic-tools"

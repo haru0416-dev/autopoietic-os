@@ -2,9 +2,9 @@
 
 This project uses `P` as the commit-level phase marker. A phase commit should represent a coherent system capability, not just a pile of files.
 
-## Current phase: P1 offline mutation verifier
+## Current phase: P2 VM-tested mutation promotion
 
-P1 is the current capability boundary. The repository contains a Rust `mutation-runner` CLI that verifies mutation proposals in an isolated worktree, records successful and failed verification attempts, and does not mutate the live system. The P1 boundary is defined in [ADR 0013](adr/0013-p1-offline-mutation-verifier-boundary.md).
+P2 is the current capability boundary. The repository contains a Rust `mutation-runner` CLI that verifies mutation proposals in an isolated worktree, records successful and failed verification attempts, then promotes P1-verified mutations through an isolated VM-check gate without mutating the live system. The P2 boundary is defined in [ADR 0015](adr/0015-p2-vm-tested-mutation-promotion-boundary.md).
 
 P0 remains the committed ISO baseline. It contains focused BIOS and UEFI VM checks for an observe-only ISO, plus black-box BIOS and UEFI boot checks for the production ISO artifact. The P0 verification boundary is defined in [ADR 0012](adr/0012-p0-iso-verification-boundary.md).
 
@@ -62,7 +62,7 @@ Post-P0 phases should be proposed only after the previous phase has executable v
 - P3: install workflow and generation lineage linking;
 - P4: organ registry and decay review.
 
-P1 and P3 now have ADR boundaries. P2 still needs its own ADR before implementation.
+P1, P2, and P3 now have ADR boundaries. P3 is the next planned capability after P2 verification evidence is reviewed.
 
 ## P1: offline mutation verifier
 
@@ -79,6 +79,22 @@ P1 requires:
 - documentation that P1 is still not autonomous mutation — documented here and in `docs/implementation/mutation-verifier.md`.
 
 P1 does not include AI patch generation, live activation, automatic revert, generation lineage promotion, install workflow, GUI, or heavy agent runtime.
+
+## P2: VM-tested mutation promotion
+
+P2 promotes a P1-verified mutation into a VM-tested candidate without accepting it into a real generation or mutating the live system. Its scope is fixed by [ADR 0015](adr/0015-p2-vm-tested-mutation-promotion-boundary.md).
+
+P2 requires:
+
+- a promotion entrypoint that accepts only P1 `verified` mutation evidence plus matching proposal and root fingerprints — implemented by `mutation-runner promote`;
+- replay or reproduction of the mutation in an isolated candidate worktree or copy — implemented by promotion replay before checks;
+- NixOS build plus VM boot checks for the candidate target configuration — implemented as generated `nix build` checks for flake VM check outputs;
+- phase-specific smoke assertions after VM boot — currently provided by the selected VM check derivations;
+- structured promotion results for `promoted`, `rejected`, and `error` outcomes — implemented by `MutationPromotionRecord` and `memory/mutation-promotion.schema.json`;
+- a promotion result journal that records successful and failed VM promotion attempts — written to `memory/mutation-promotions.jsonl` by default;
+- generation lineage evidence for P3, including mutation ID, P1 verification reference, P2 promotion reference, proposal fingerprint, verified and promotion root fingerprints, parent genome revision or digest, candidate target configuration, changed paths or organs, and executed VM checks — recorded in promotion entries.
+
+P2 does not include AI patch generation, live activation, install workflow, automatic revert, generation lineage acceptance, GUI, or remote/cloud promotion.
 
 ## P3: install workflow and generation lineage linking
 

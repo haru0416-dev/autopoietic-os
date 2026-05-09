@@ -12,13 +12,14 @@ This repository currently implements the first development slice:
 - Rust workspace CLIs, including `os-introspect`, `mutation-journal`, and `mutation-runner`;
 - schemas and phase design documents;
 - a boot-verified observe-only ISO baseline with VM checks;
-- a P1 offline mutation verifier for draft patch proposals.
+- a P1 offline mutation verifier for draft patch proposals;
+- a P2 VM-tested promotion gate for verified mutations.
 
 ## Initial contract
 
 The first milestone is not autonomous mutation. It is self-observation: the OS should be able to read itself as Nix structure and produce machine-readable state for later patch synthesis.
 
-The current repository state is the **P1 offline mutation verifier**: mutation proposals can be verified in an isolated worktree and recorded without mutating the live system. The P0 ISO baseline remains boot-verified with test-instrumented detailed checks and production BIOS/UEFI black-box boot checks. See [`docs/phases.md`](docs/phases.md), [ADR 0012](docs/adr/0012-p0-iso-verification-boundary.md), and [ADR 0013](docs/adr/0013-p1-offline-mutation-verifier-boundary.md).
+The current repository state is the **P2 VM-tested mutation promotion gate**: mutation proposals can be verified in an isolated worktree, then replayed into an isolated promotion worktree for NixOS VM checks before they become candidates for later generation lineage work. The P0 ISO baseline remains boot-verified with test-instrumented detailed checks and production BIOS/UEFI black-box boot checks. See [`docs/phases.md`](docs/phases.md), [ADR 0012](docs/adr/0012-p0-iso-verification-boundary.md), [ADR 0013](docs/adr/0013-p1-offline-mutation-verifier-boundary.md), and [ADR 0015](docs/adr/0015-p2-vm-tested-mutation-promotion-boundary.md).
 
 ## Quick start
 
@@ -27,9 +28,11 @@ nix develop
 os-introspect --root . --output memory/self-state.json
 mutation-journal append --goal "bootstrap self-observation" --status accepted --phase scaffold
 mutation-runner verify --proposal path/to/proposal.json
+mutation-runner promote --proposal path/to/proposal.json --parent-genome git:<revision>
 ```
 
 For authored mutations, prefer `proposal.json` plus a sibling `patch.diff`; inline JSON patch strings are supported mainly for small tests and compatibility.
+Promotion reads P1 verification evidence from `memory/mutation-results.jsonl` by default and appends P2 promotion evidence to `memory/mutation-promotions.jsonl`.
 
 ## ISO smoke test
 
@@ -56,6 +59,10 @@ nix build path:/home/haru/OS#checks.x86_64-linux.iso-production-uefi-boot-consol
 ```
 
 `checks.x86_64-linux.iso-boot` is kept as an alias for the basic BIOS boot check.
+
+## CI
+
+GitHub Actions workflows are split into fast Rust/schema/Nix package checks and KVM-backed VM checks. See [`docs/ci.md`](docs/ci.md).
 
 ## Layout
 

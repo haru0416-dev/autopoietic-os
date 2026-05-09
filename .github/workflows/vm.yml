@@ -1,0 +1,76 @@
+name: VM checks
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      vm_checks:
+        description: "Space-separated flake VM checks to run"
+        required: true
+        default: "iso-boot-basic"
+        type: string
+      run_flake_check:
+        description: "Run full nix flake check instead of selected VM checks"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  vm:
+    name: NixOS VM checks
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Nix with KVM system feature
+        uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          enable_kvm: true
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            system-features = nixos-test benchmark big-parallel kvm
+
+      - name: Require KVM for NixOS VM tests
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::/dev/kvm is not available on this runner. Use a KVM-enabled GitHub runner or self-hosted runner for P2 VM checks."
+            exit 1
+          fi
+          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            echo "::error::/dev/kvm exists but is not readable and writable by the runner user after KVM setup."
+            ls -l /dev/kvm
+            exit 1
+          fi
+          ls -l /dev/kvm
+
+      - name: Show Nix system features
+        run: nix config show system-features
+
+      - name: Run selected VM checks
+        env:
+          VM_CHECKS: ${{ github.event.inputs.vm_checks || 'iso-boot-basic' }}
+          RUN_FLAKE_CHECK: ${{ github.event.inputs.run_flake_check || 'false' }}
+        run: |
+          if [ "$RUN_FLAKE_CHECK" = "true" ]; then
+            nix flake check --no-write-lock-file "path:${GITHUB_WORKSPACE}"
+            exit 0
+          fi
+
+          checks="${VM_CHECKS:-iso-boot-basic}"
+          for check in $checks; do
+            nix build --no-link --print-out-paths --no-write-lock-file "path:${GITHUB_WORKSPACE}#checks.x86_64-linux.${check}"
+          done

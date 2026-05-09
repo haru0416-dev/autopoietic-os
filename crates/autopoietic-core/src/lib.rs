@@ -252,10 +252,45 @@ pub struct MutationVerificationRecord {
     pub phase: String,
     pub status: VerificationStatus,
     pub reason: String,
+    pub proposal_fingerprint: String,
+    pub root_fingerprint: String,
     pub changed_paths: Vec<String>,
     pub checks: Vec<VerificationCheckResult>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub side_effects: Vec<SideEffectDeclaration>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PromotionStatus {
+    Promoted,
+    Rejected,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MutationPromotionRecord {
+    pub promotion_id: String,
+    pub timestamp: String,
+    pub mutation_id: String,
+    pub goal: String,
+    pub phase: String,
+    pub status: PromotionStatus,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_id: Option<String>,
+    pub proposal_fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_root_fingerprint: Option<String>,
+    pub promotion_root_fingerprint: String,
+    pub parent_genome: String,
+    pub target_configuration: String,
+    pub changed_paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changed_organs: Vec<String>,
+    pub checks: Vec<VerificationCheckResult>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub metadata: BTreeMap<String, String>,
 }
