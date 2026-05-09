@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopoietic-nixos.local/schemas/self-state.schema.json",
+  "type": "object",
+  "required": ["identity", "genome", "body", "memory"],
+  "properties": {
+    "identity": {
+      "type": "object",
+      "required": ["host", "roles"],
+      "properties": {
+        "host": { "type": "string" },
+        "roles": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "genome": { "type": "object" },
+    "body": { "type": "object" },
+    "memory": { "type": "object" },
+    "pain_points": { "type": "array" }
+  }
+}

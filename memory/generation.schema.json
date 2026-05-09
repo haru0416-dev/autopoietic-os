@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopoietic-nixos.local/schemas/generation.schema.json",
+  "type": "object",
+  "required": ["timestamp", "generation", "mutation_id", "goal", "activation_result"],
+  "properties": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "generation": { "type": "string" },
+    "mutation_id": { "type": "string" },
+    "goal": { "type": "string" },
+    "changed_organs": { "type": "array", "items": { "type": "string" } },
+    "parent_generation": { "type": ["string", "null"] },
+    "activation_result": { "type": "string" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

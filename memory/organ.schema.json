@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopoietic-nixos.local/schemas/organ.schema.json",
+  "type": "object",
+  "required": ["name", "type", "source", "purpose"],
+  "properties": {
+    "name": { "type": "string" },
+    "type": {
+      "enum": ["tmp-tool", "cli", "devShell", "package", "home-manager-module", "nixos-module", "systemd-service", "systemd-timer", "overlay"]
+    },
+    "source": { "type": "string" },
+    "purpose": { "type": "string" },
+    "created_by": { "type": "string" },
+    "usage_count": { "type": "integer", "minimum": 0 },
+    "failure_count": { "type": "integer", "minimum": 0 },
+    "related_goals": { "type": "array", "items": { "type": "string" } },
+    "decay_status": { "enum": ["active", "candidate", "stale", "duplicate", "failed"] }
+  }
+}

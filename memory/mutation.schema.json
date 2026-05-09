@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopoietic-nixos.local/schemas/mutation.schema.json",
+  "type": "object",
+  "required": ["mutation_id", "timestamp", "goal", "status", "phase"],
+  "properties": {
+    "mutation_id": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "goal": { "type": "string" },
+    "status": { "enum": ["pending", "accepted", "failed", "reverted"] },
+    "phase": { "type": "string" },
+    "reason": { "type": "string" },
+    "changed_paths": { "type": "array", "items": { "type": "string" } },
+    "next_hypothesis": { "type": "string" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

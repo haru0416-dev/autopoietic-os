@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopoietic-nixos.local/schemas/effect.schema.json",
+  "type": "object",
+  "required": ["effect_id", "timestamp", "mutation_id", "type", "target", "reversible"],
+  "properties": {
+    "effect_id": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "mutation_id": { "type": "string" },
+    "type": { "type": "string" },
+    "target": { "type": "string" },
+    "reversible": { "type": "boolean" },
+    "compensation": { "type": "string" },
+    "verified_by": { "type": "string" },
+    "risk": { "enum": ["low", "medium", "high", "irreversible"] },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

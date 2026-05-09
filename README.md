@@ -1,0 +1,75 @@
+# Autopoietic NixOS
+
+Autopoietic NixOS is an experimental NixOS seed for treating the system configuration as a genome: AI proposes mutations as Nix patches, verifier loops test them, and accepted generations become an evolutionary lineage.
+
+The long-term target is a complete, minimal NixOS-based distribution that can be distributed as an ISO image, not merely a set of tools installed on an existing machine. Existing NixOS components are reused when they fit; when they are too large or imprecise, they are distilled or replaced with purpose-built organs.
+
+This repository currently implements the first development slice:
+
+- a flake-based NixOS seed;
+- Home Manager integration;
+- core NixOS modules for identity, memory, observation, agent runtime, and mutation running;
+- Rust workspace CLIs, including `os-introspect` and `mutation-journal`;
+- schemas and phase design documents;
+- a boot-verified observe-only ISO baseline with VM checks.
+
+## Initial contract
+
+The first milestone is not autonomous mutation. It is self-observation: the OS should be able to read itself as Nix structure and produce machine-readable state for later patch synthesis.
+
+The current repository state is the **P0 observe-only ISO baseline**: detailed observe-only assertions run against a test-instrumented ISO, and the production ISO artifact has black-box serial-console boot checks for BIOS and UEFI. See [`docs/phases.md`](docs/phases.md) and [ADR 0012](docs/adr/0012-p0-iso-verification-boundary.md).
+
+## Quick start
+
+```bash
+nix develop
+os-introspect --root . --output memory/self-state.json
+mutation-journal append --goal "bootstrap self-observation" --status accepted --phase scaffold
+```
+
+## ISO smoke test
+
+Build and boot-test the Autopoietic ISO configuration with the NixOS VM test driver:
+
+```bash
+nix build .#checks.x86_64-linux.iso-boot-basic --no-link --print-out-paths
+nix build .#checks.x86_64-linux.iso-observe-only --no-link --print-out-paths
+nix build .#checks.x86_64-linux.iso-tools --no-link --print-out-paths
+nix build .#checks.x86_64-linux.iso-uefi-boot --no-link --print-out-paths
+nix build .#checks.x86_64-linux.iso-production-boot-console --no-link --print-out-paths
+nix build .#checks.x86_64-linux.iso-production-uefi-boot-console --no-link --print-out-paths
+```
+
+In an uncommitted worktree, use the explicit path form so Nix sees untracked files:
+
+```bash
+nix build path:/home/haru/OS#checks.x86_64-linux.iso-boot-basic --no-link --print-out-paths
+nix build path:/home/haru/OS#checks.x86_64-linux.iso-observe-only --no-link --print-out-paths
+nix build path:/home/haru/OS#checks.x86_64-linux.iso-tools --no-link --print-out-paths
+nix build path:/home/haru/OS#checks.x86_64-linux.iso-uefi-boot --no-link --print-out-paths
+nix build path:/home/haru/OS#checks.x86_64-linux.iso-production-boot-console --no-link --print-out-paths
+nix build path:/home/haru/OS#checks.x86_64-linux.iso-production-uefi-boot-console --no-link --print-out-paths
+```
+
+`checks.x86_64-linux.iso-boot` is kept as an alias for the basic BIOS boot check.
+
+## Layout
+
+```text
+hosts/       host-level NixOS configurations
+modules/     core modules and future organs
+home/        Home Manager configuration
+crates/      Rust workspace for core CLIs and libraries
+memory/      schemas plus JSONL ledgers
+mutations/   pending, accepted, failed, and reverted patches
+tests/       VM and organ checks
+docs/        manifesto, ontology, protocols, anti-goals
+```
+
+## Architecture decisions
+
+Design decisions are recorded as ADRs under [`docs/adr/`](docs/adr/README.md). Start there before extending the implementation; the ADRs define the boundaries between Nix mutation, side effects, Rust tooling, observation, and verifier feedback.
+
+## Safety model
+
+Nix generations only roll back declarative system configuration. Anything outside that boundary, such as file writes or external API calls, must be recorded in the effect ledger with reversibility and compensation metadata.
