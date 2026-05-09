@@ -2,9 +2,9 @@
 
 This project uses `P` as the commit-level phase marker. A phase commit should represent a coherent system capability, not just a pile of files.
 
-## Current phase: P2 VM-tested mutation promotion
+## Current phase: initial P3 install planning and generation lineage
 
-P2 is the current capability boundary. The repository contains a Rust `mutation-runner` CLI that verifies mutation proposals in an isolated worktree, records successful and failed verification attempts, then promotes P1-verified mutations through an isolated VM-check gate without mutating the live system. The P2 boundary is defined in [ADR 0015](adr/0015-p2-vm-tested-mutation-promotion-boundary.md).
+P3 is the current capability boundary. The repository contains a Rust `mutation-runner` CLI that verifies mutation proposals in an isolated worktree, promotes P1-verified mutations through an isolated VM-check gate, then creates dry-run install plans and generation lineage records from P2 promotion evidence without running a live install. The P3 boundary is defined in [ADR 0014](adr/0014-p3-install-workflow-and-generation-lineage-boundary.md).
 
 P0 remains the committed ISO baseline. It contains focused BIOS and UEFI VM checks for an observe-only ISO, plus black-box BIOS and UEFI boot checks for the production ISO artifact. The P0 verification boundary is defined in [ADR 0012](adr/0012-p0-iso-verification-boundary.md).
 
@@ -104,12 +104,14 @@ P3 requires P2 to exist first. P2 must define how a P1 `verified` mutation becom
 
 P3 requires:
 
-- a minimal install workflow with explicit target root selection;
-- dry-run or plan output before any install-side effect;
+- a minimal install workflow with explicit target root selection — initially implemented by `mutation-runner install-plan --target-root <absolute-path>`;
+- dry-run or plan output before any install-side effect — implemented by default dry-run JSON output from `mutation-runner install-plan`;
 - no destructive disk or live-system operation without explicit approval;
-- generation lineage records linking mutation ID, parent generation, resulting generation, activation or install result, changed organs, and verifier evidence;
+- generation lineage records linking mutation ID, parent generation, resulting generation, activation or install result, changed organs, and verifier evidence — implemented for planned installs by `GenerationRecord` fields and optional `--record` journal writes;
 - installed-system Autopoietic memory seed for identity, mutation results, generation ledger, and effect ledger;
 - post-install verification that the installed root can be evaluated and that lineage entries are readable;
 - effect ledger entries for non-Nix side effects caused by install workflow steps.
+
+The initial P3 slice intentionally stops before `nixos-install`, target-root writes, partitioning, or installed-root evaluation. Those require separate external grounding and explicit approval because they cross into live install side effects.
 
 P3 does not include AI patch generation, live autonomous mutation, automatic revert, organ registry promotion, full installer UX, partitioning wizard, GUI, or remote/cloud install.

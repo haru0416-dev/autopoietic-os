@@ -125,6 +125,14 @@ struct GenerationArgs {
     parent_generation: Option<String>,
     #[arg(long, default_value = "unknown")]
     activation_result: String,
+    #[arg(long)]
+    verification_id: Option<String>,
+    #[arg(long)]
+    promotion_id: Option<String>,
+    #[arg(long)]
+    target_root: Option<String>,
+    #[arg(long)]
+    target_configuration: Option<String>,
     #[arg(long = "metadata")]
     metadata: Vec<String>,
 }
@@ -210,6 +218,10 @@ fn append_generation(args: GenerationArgs) -> Result<GenerationRecord> {
         changed_organs: args.changed_organs,
         parent_generation: args.parent_generation,
         activation_result: args.activation_result,
+        verification_id: args.verification_id,
+        promotion_id: args.promotion_id,
+        target_root: args.target_root,
+        target_configuration: args.target_configuration,
         metadata: parse_metadata(&args.metadata)?,
     };
     append_jsonl(&args.path, &record)?;

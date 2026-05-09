@@ -13,13 +13,14 @@ This repository currently implements the first development slice:
 - schemas and phase design documents;
 - a boot-verified observe-only ISO baseline with VM checks;
 - a P1 offline mutation verifier for draft patch proposals;
-- a P2 VM-tested promotion gate for verified mutations.
+- a P2 VM-tested promotion gate for verified mutations;
+- an initial P3 install-plan entrypoint that links promoted mutations to generation lineage records without running a live install.
 
 ## Initial contract
 
 The first milestone is not autonomous mutation. It is self-observation: the OS should be able to read itself as Nix structure and produce machine-readable state for later patch synthesis.
 
-The current repository state is the **P2 VM-tested mutation promotion gate**: mutation proposals can be verified in an isolated worktree, then replayed into an isolated promotion worktree for NixOS VM checks before they become candidates for later generation lineage work. The P0 ISO baseline remains boot-verified with test-instrumented detailed checks and production BIOS/UEFI black-box boot checks. See [`docs/phases.md`](docs/phases.md), [ADR 0012](docs/adr/0012-p0-iso-verification-boundary.md), [ADR 0013](docs/adr/0013-p1-offline-mutation-verifier-boundary.md), and [ADR 0015](docs/adr/0015-p2-vm-tested-mutation-promotion-boundary.md).
+The current repository state is the **initial P3 install-plan and generation lineage link**: mutation proposals can be verified in an isolated worktree, replayed into an isolated promotion worktree for NixOS VM checks, then converted into a dry-run install plan and generation lineage record. The P0 ISO baseline remains boot-verified with test-instrumented detailed checks and production BIOS/UEFI black-box boot checks. See [`docs/phases.md`](docs/phases.md), [ADR 0012](docs/adr/0012-p0-iso-verification-boundary.md), [ADR 0013](docs/adr/0013-p1-offline-mutation-verifier-boundary.md), [ADR 0015](docs/adr/0015-p2-vm-tested-mutation-promotion-boundary.md), and [ADR 0014](docs/adr/0014-p3-install-workflow-and-generation-lineage-boundary.md).
 
 ## Quick start
 
@@ -29,10 +30,12 @@ os-introspect --root . --output memory/self-state.json
 mutation-journal append --goal "bootstrap self-observation" --status accepted --phase scaffold
 mutation-runner verify --proposal path/to/proposal.json
 mutation-runner promote --proposal path/to/proposal.json --parent-genome git:<revision>
+mutation-runner install-plan --mutation-id mut-example --target-root /mnt/autopoietic --parent-generation gen-parent --resulting-generation gen-child
 ```
 
 For authored mutations, prefer `proposal.json` plus a sibling `patch.diff`; inline JSON patch strings are supported mainly for small tests and compatibility.
 Promotion reads P1 verification evidence from `memory/mutation-results.jsonl` by default and appends P2 promotion evidence to `memory/mutation-promotions.jsonl`.
+Install planning reads P2 promotion evidence from `memory/mutation-promotions.jsonl` by default. It prints a dry-run generation lineage record unless `--record` is passed; it does not run `nixos-install` or mutate a target root.
 
 ## ISO smoke test
 

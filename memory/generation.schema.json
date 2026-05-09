@@ -11,6 +11,10 @@
     "changed_organs": { "type": "array", "items": { "type": "string" } },
     "parent_generation": { "type": ["string", "null"] },
     "activation_result": { "type": "string" },
+    "verification_id": { "type": "string" },
+    "promotion_id": { "type": "string" },
+    "target_root": { "type": "string" },
+    "target_configuration": { "type": "string" },
     "metadata": {
       "type": "object",
       "additionalProperties": { "type": "string" }
