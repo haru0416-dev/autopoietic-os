@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopoietic-nixos.local/schemas/mutation-proposal.schema.json",
+  "type": "object",
+  "required": ["schema_version", "mutation_id", "goal", "phase", "changed_paths", "expected_checks"],
+  "oneOf": [
+    { "required": ["patch"], "not": { "required": ["patch_path"] } },
+    { "required": ["patch_path"], "not": { "required": ["patch"] } }
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "mutation_id": { "type": "string" },
+    "goal": { "type": "string" },
+    "phase": { "type": "string" },
+    "changed_paths": { "type": "array", "items": { "type": "string" } },
+    "expected_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "command"],
+        "properties": {
+          "name": { "type": "string" },
+          "command": { "type": "string" },
+          "args": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "patch": { "type": "string" },
+    "patch_path": { "type": "string" },
+    "side_effects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "target", "reversible", "compensation", "risk"],
+        "properties": {
+          "type": { "type": "string" },
+          "target": { "type": "string" },
+          "reversible": { "type": "boolean" },
+          "compensation": { "type": "string" },
+          "risk": { "enum": ["low", "medium", "high", "irreversible"] }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

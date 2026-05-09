@@ -22,7 +22,7 @@ P1で作るものは次の通り。
   - phase
   - changed paths
   - expected checks
-  - patch body
+  - patch body or proposal-relative patch path
   - side-effect declaration
 - proposalを検証するCLI
   - live systemには適用しない

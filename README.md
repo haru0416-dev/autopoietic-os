@@ -9,15 +9,16 @@ This repository currently implements the first development slice:
 - a flake-based NixOS seed;
 - Home Manager integration;
 - core NixOS modules for identity, memory, observation, agent runtime, and mutation running;
-- Rust workspace CLIs, including `os-introspect` and `mutation-journal`;
+- Rust workspace CLIs, including `os-introspect`, `mutation-journal`, and `mutation-runner`;
 - schemas and phase design documents;
-- a boot-verified observe-only ISO baseline with VM checks.
+- a boot-verified observe-only ISO baseline with VM checks;
+- a P1 offline mutation verifier for draft patch proposals.
 
 ## Initial contract
 
 The first milestone is not autonomous mutation. It is self-observation: the OS should be able to read itself as Nix structure and produce machine-readable state for later patch synthesis.
 
-The current repository state is the **P0 observe-only ISO baseline**: detailed observe-only assertions run against a test-instrumented ISO, and the production ISO artifact has black-box serial-console boot checks for BIOS and UEFI. See [`docs/phases.md`](docs/phases.md) and [ADR 0012](docs/adr/0012-p0-iso-verification-boundary.md).
+The current repository state is the **P1 offline mutation verifier**: mutation proposals can be verified in an isolated worktree and recorded without mutating the live system. The P0 ISO baseline remains boot-verified with test-instrumented detailed checks and production BIOS/UEFI black-box boot checks. See [`docs/phases.md`](docs/phases.md), [ADR 0012](docs/adr/0012-p0-iso-verification-boundary.md), and [ADR 0013](docs/adr/0013-p1-offline-mutation-verifier-boundary.md).
 
 ## Quick start
 
@@ -25,7 +26,10 @@ The current repository state is the **P0 observe-only ISO baseline**: detailed o
 nix develop
 os-introspect --root . --output memory/self-state.json
 mutation-journal append --goal "bootstrap self-observation" --status accepted --phase scaffold
+mutation-runner verify --proposal path/to/proposal.json
 ```
+
+For authored mutations, prefer `proposal.json` plus a sibling `patch.diff`; inline JSON patch strings are supported mainly for small tests and compatibility.
 
 ## ISO smoke test
 

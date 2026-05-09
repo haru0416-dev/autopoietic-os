@@ -42,6 +42,11 @@
           program = "${self.packages.${system}.autopoietic-tools}/bin/mutation-journal";
           meta.description = "Append Autopoietic NixOS mutation and effect journal entries";
         };
+        mutation-runner = {
+          type = "app";
+          program = "${self.packages.${system}.autopoietic-tools}/bin/mutation-runner";
+          meta.description = "Verify Autopoietic NixOS mutation proposals offline";
+        };
         default = self.apps.${system}.os-introspect;
       });
 

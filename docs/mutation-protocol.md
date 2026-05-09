@@ -8,12 +8,12 @@ Every mutation should follow this sequence.
 4. Ground version-sensitive external facts with local anchors, executable probes, and lateral corroboration, following `docs/protocols/external-grounding.md`.
 5. Form a mutation hypothesis.
 6. Generate a Nix patch, not an imperative command sequence.
-7. Record the draft mutation in the journal.
-8. Apply the patch in a controlled worktree.
+7. Encode the draft as a mutation proposal.
+8. Apply the patch in a controlled worktree with `mutation-runner verify`.
 9. Run static checks, beginning with `nix flake check` where available.
 10. Build the target system or package.
 11. Run VM or smoke tests for activation behavior.
-12. Record all failures with phase and next hypothesis.
+12. Record all verification successes and failures in the mutation result journal.
 13. If accepted and authorized, switch the live system.
 14. Link the new generation to the mutation ID.
 15. Record non-Nix side effects in the effect ledger.

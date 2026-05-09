@@ -50,7 +50,7 @@ ADR 0012 fixes this as the P0 verification boundary: detailed observe-only asser
   - structural `jq` mutation runner checks for `mode = observe-only` and `memory_dir = /var/lib/autopoietic`
   - successful `/var/lib/autopoietic` directory initialization checks for `mutations`, `effects`, `generations`, and `organs`, including `root:root:750` permissions on the memory root
   - successful absence check for `autopoietic-agent.service`
-  - successful `command -v os-introspect` and `command -v mutation-journal`
+  - successful `command -v os-introspect`, `command -v mutation-journal`, and `command -v mutation-runner`
   - successful `os-introspect --root /etc --output /tmp/self-state.json`
   - structural `jq` self-state checks for `schema_version`, `identity`, `genome`, `body.systemd`, and `memory`
   - successful `mutation-journal append --path /tmp/mutations.jsonl ...`
@@ -120,7 +120,7 @@ The focused VM boot checks passed after the split:
 
 - `iso-boot-basic` reached `multi-user.target` under BIOS CD-ROM boot and structurally verified `/etc/autopoietic/identity.json` with `jq`.
 - `iso-observe-only` structurally verified observation policy and mutation runner mode, verified memory directories including `generations`, and confirmed the live agent runtime is not enabled by default.
-- `iso-tools` ran `os-introspect`, structurally checked the emitted self-state JSON, appended a mutation journal entry to `/tmp`, structurally checked the JSONL entry, and rejected malformed metadata.
+- `iso-tools` ran `os-introspect`, confirmed `mutation-runner` is present, structurally checked the emitted self-state JSON, appended a mutation journal entry to `/tmp`, structurally checked the JSONL entry, and rejected malformed metadata.
 - `iso-uefi-boot` reached the observe-only system under UEFI CD-ROM boot with OVMF pflash firmware.
 - `iso-production-boot-console` booted the production ISO artifact without test instrumentation and observed `multi-user.target` on the serial console.
 - `iso-production-uefi-boot-console` booted the production ISO artifact under UEFI without test instrumentation and observed `multi-user.target` on the serial console.

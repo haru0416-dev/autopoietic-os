@@ -4,6 +4,7 @@ members = [
   "crates/autopoietic-core",
   "crates/os-introspect",
   "crates/mutation-journal",
+  "crates/mutation-runner",
 ]
 
 [workspace.package]

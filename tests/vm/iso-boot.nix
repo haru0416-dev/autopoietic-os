@@ -122,6 +122,7 @@ in
       with subtest("Autopoietic tools run inside the booted ISO"):
           machine.succeed("command -v os-introspect")
           machine.succeed("command -v mutation-journal")
+          machine.succeed("command -v mutation-runner")
           machine.succeed("os-introspect --root /etc --output /tmp/self-state.json")
           machine.succeed("test -s /tmp/self-state.json")
           machine.succeed("jq -e '.schema_version == \"0.1.0\"' /tmp/self-state.json")

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopoietic-nixos.local/schemas/mutation-result.schema.json",
+  "type": "object",
+  "required": ["verification_id", "timestamp", "mutation_id", "goal", "phase", "status", "reason", "changed_paths", "checks"],
+  "properties": {
+    "verification_id": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "mutation_id": { "type": "string" },
+    "goal": { "type": "string" },
+    "phase": { "type": "string" },
+    "status": { "enum": ["verified", "rejected", "error"] },
+    "reason": { "type": "string" },
+    "changed_paths": { "type": "array", "items": { "type": "string" } },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "command", "status", "stdout", "stderr"],
+        "properties": {
+          "name": { "type": "string" },
+          "command": { "type": "string" },
+          "args": { "type": "array", "items": { "type": "string" } },
+          "status": { "enum": ["passed", "failed", "error"] },
+          "exit_code": { "type": ["integer", "null"] },
+          "stdout": { "type": "string" },
+          "stderr": { "type": "string" }
+        }
+      }
+    },
+    "side_effects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "target", "reversible", "compensation", "risk"],
+        "properties": {
+          "type": { "type": "string" },
+          "target": { "type": "string" },
+          "reversible": { "type": "boolean" },
+          "compensation": { "type": "string" },
+          "risk": { "enum": ["low", "medium", "high", "irreversible"] }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

@@ -4,7 +4,7 @@ This note records the external-grounding constraints used for the first Rust wor
 
 ## External grounding
 
-- External surface: Rust toolchain and crate APIs used by `autopoietic-core`, `os-introspect`, and `mutation-journal`.
+- External surface: Rust toolchain and crate APIs used by `autopoietic-core`, `os-introspect`, `mutation-journal`, and `mutation-runner`.
 - Stale risk: Class A / B — crate APIs and resolved versions may differ from remembered examples or unconstrained latest documentation.
 - Local anchor:
   - `rustc 1.94.1 (e408947bf 2026-03-25)` from `rtk rustc --version`.

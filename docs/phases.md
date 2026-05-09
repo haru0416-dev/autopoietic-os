@@ -2,11 +2,11 @@
 
 This project uses `P` as the commit-level phase marker. A phase commit should represent a coherent system capability, not just a pile of files.
 
-## Current phase: P0 baseline
+## Current phase: P1 offline mutation verifier
 
-P0 is the committed baseline. The repository contains focused BIOS and UEFI VM checks for an observe-only ISO, plus black-box BIOS and UEFI boot checks for the production ISO artifact. The verification boundary is defined in [ADR 0012](adr/0012-p0-iso-verification-boundary.md).
+P1 is the current capability boundary. The repository contains a Rust `mutation-runner` CLI that verifies mutation proposals in an isolated worktree, records successful and failed verification attempts, and does not mutate the live system. The P1 boundary is defined in [ADR 0013](adr/0013-p1-offline-mutation-verifier-boundary.md).
 
-The next planned phase is P1: an offline mutation verifier. Its boundary is defined in [ADR 0013](adr/0013-p1-offline-mutation-verifier-boundary.md).
+P0 remains the committed ISO baseline. It contains focused BIOS and UEFI VM checks for an observe-only ISO, plus black-box BIOS and UEFI boot checks for the production ISO artifact. The P0 verification boundary is defined in [ADR 0012](adr/0012-p0-iso-verification-boundary.md).
 
 ## P-1: bootstrap scaffold
 
@@ -70,12 +70,12 @@ P1 starts the verifier-guided mutation pipeline without allowing the system to m
 
 P1 requires:
 
-- a mutation proposal format with goal, phase, changed paths, expected checks, patch body, and side-effect declaration;
-- a verifier CLI that applies a proposal only to a temporary worktree or copy;
-- no live `nixos-rebuild switch` and no mutation applied to the running system;
-- structured verification results for passed, rejected, and errored proposals;
-- journal entries for both successful and failed verification attempts;
-- tests for a valid proposal, a malformed patch, an undeclared side effect, and a failed check being recorded;
-- documentation that P1 is still not autonomous mutation.
+- a mutation proposal format with goal, phase, changed paths, expected checks, patch reference or inline body, and side-effect declaration — implemented by `MutationProposal` and `memory/mutation-proposal.schema.json`;
+- a verifier CLI that applies a proposal only to a temporary worktree or copy — implemented by `mutation-runner verify`;
+- no live `nixos-rebuild switch` and no mutation applied to the running system — enforced by isolated copy verification;
+- structured verification results for passed, rejected, and errored proposals — implemented by `MutationVerificationRecord` and `memory/mutation-result.schema.json`;
+- journal entries for both successful and failed verification attempts — written to `memory/mutation-results.jsonl` by default;
+- tests for valid inline and `patch_path` proposals, malformed patches, invalid patch sources, side-effect boundary violations, and failed checks being recorded — covered by `cargo test -p mutation-runner`;
+- documentation that P1 is still not autonomous mutation — documented here and in `docs/implementation/mutation-verifier.md`.
 
 P1 does not include AI patch generation, live activation, automatic revert, generation lineage promotion, install workflow, GUI, or heavy agent runtime.

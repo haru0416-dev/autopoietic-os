@@ -180,6 +180,87 @@ pub struct EffectRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProposalCheck {
+    pub name: String,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SideEffectDeclaration {
+    #[serde(rename = "type")]
+    pub effect_type: String,
+    pub target: String,
+    pub reversible: bool,
+    pub compensation: String,
+    pub risk: EffectRisk,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MutationProposal {
+    pub schema_version: String,
+    pub mutation_id: String,
+    pub goal: String,
+    pub phase: String,
+    pub changed_paths: Vec<String>,
+    pub expected_checks: Vec<ProposalCheck>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patch_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub side_effects: Vec<SideEffectDeclaration>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum VerificationStatus {
+    Verified,
+    Rejected,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum VerificationCheckStatus {
+    Passed,
+    Failed,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VerificationCheckResult {
+    pub name: String,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+    pub status: VerificationCheckStatus,
+    pub exit_code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MutationVerificationRecord {
+    pub verification_id: String,
+    pub timestamp: String,
+    pub mutation_id: String,
+    pub goal: String,
+    pub phase: String,
+    pub status: VerificationStatus,
+    pub reason: String,
+    pub changed_paths: Vec<String>,
+    pub checks: Vec<VerificationCheckResult>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub side_effects: Vec<SideEffectDeclaration>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GenerationRecord {
     pub timestamp: String,
     pub generation: String,
