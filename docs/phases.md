@@ -4,9 +4,9 @@ This project uses `P` as the commit-level phase marker. A phase commit should re
 
 ## Current phase: P0 baseline
 
-P0 is the current baseline. The worktree contains focused BIOS and UEFI VM checks for an observe-only ISO, plus black-box BIOS and UEFI boot checks for the production ISO artifact. The verification boundary is defined in [ADR 0012](adr/0012-p0-iso-verification-boundary.md).
+P0 is the committed baseline. The repository contains focused BIOS and UEFI VM checks for an observe-only ISO, plus black-box BIOS and UEFI boot checks for the production ISO artifact. The verification boundary is defined in [ADR 0012](adr/0012-p0-iso-verification-boundary.md).
 
-A phase commit should still be made only after reviewing the untracked initial repository state and choosing the commit boundary.
+The next planned phase is P1: an offline mutation verifier. Its boundary is defined in [ADR 0013](adr/0013-p1-offline-mutation-verifier-boundary.md).
 
 ## P-1: bootstrap scaffold
 
@@ -57,9 +57,25 @@ P0 accepts the verification split from ADR 0012: detailed observe-only assertion
 
 Post-P0 phases should be proposed only after the previous phase has executable verification. Likely future phase themes are:
 
-- P1: verifier-guided mutation draft pipeline;
+- P1: offline mutation verifier for draft patches;
 - P2: VM-tested mutation promotion;
 - P3: install workflow and generation lineage linking;
 - P4: organ registry and decay review.
 
 These names are placeholders until each phase has an ADR or implementation plan.
+
+## P1: offline mutation verifier
+
+P1 starts the verifier-guided mutation pipeline without allowing the system to mutate itself live. The scope is fixed by [ADR 0013](adr/0013-p1-offline-mutation-verifier-boundary.md).
+
+P1 requires:
+
+- a mutation proposal format with goal, phase, changed paths, expected checks, patch body, and side-effect declaration;
+- a verifier CLI that applies a proposal only to a temporary worktree or copy;
+- no live `nixos-rebuild switch` and no mutation applied to the running system;
+- structured verification results for passed, rejected, and errored proposals;
+- journal entries for both successful and failed verification attempts;
+- tests for a valid proposal, a malformed patch, an undeclared side effect, and a failed check being recorded;
+- documentation that P1 is still not autonomous mutation.
+
+P1 does not include AI patch generation, live activation, automatic revert, generation lineage promotion, install workflow, GUI, or heavy agent runtime.
