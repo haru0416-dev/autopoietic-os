@@ -1104,11 +1104,50 @@ pub struct OrganRecord {
     pub organ_type: OrganType,
     pub source: String,
     pub purpose: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related_goals: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decay_status: Option<DecayStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrganReviewOutput {
+    pub reviewed_at: String,
+    pub source: String,
+    pub total_organs: usize,
+    pub findings: Vec<OrganReviewFinding>,
+    pub active: Vec<String>,
+    pub candidates: Vec<String>,
+    pub stale: Vec<String>,
+    pub duplicate: Vec<String>,
+    pub failed: Vec<String>,
+    pub unknown: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OrganReviewStatus {
+    Active,
+    Candidate,
+    Stale,
+    Duplicate,
+    Failed,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrganReviewFinding {
+    pub name: String,
+    pub status: OrganReviewStatus,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub evidence: BTreeMap<String, String>,
 }
 
 #[cfg(test)]

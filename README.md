@@ -32,6 +32,8 @@ mutation-runner verify --proposal path/to/proposal.json --evidence-bundle memory
 mutation-runner promote --proposal path/to/proposal.json --parent-genome git:<revision> --evidence-bundle memory/evidence/p2.json
 mutation-runner install-plan --mutation-id mut-example --target-root /mnt/autopoietic --parent-generation gen-parent --resulting-generation gen-child --evidence-bundle memory/evidence/p3-plan.json
 mutation-runner install-verify --plan path/to/install-plan.json --evidence-bundle memory/evidence/p3-verify.json
+mutation-journal organ add --name mutation-journal --type cli --source crates/mutation-journal --purpose "append Autopoietic OS memory records" --decay-status active
+mutation-journal organ review --path memory/organs.jsonl
 ```
 
 For authored mutations, prefer `proposal.json` plus a sibling `patch.diff`; inline JSON patch strings are supported mainly for small tests and compatibility.

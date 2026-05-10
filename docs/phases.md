@@ -62,7 +62,7 @@ Post-P0 phases should be proposed only after the previous phase has executable v
 - P3: install workflow and generation lineage linking;
 - P4: organ registry and decay review.
 
-P1, P2, and P3 now have ADR boundaries. P3 is the next planned capability after P2 verification evidence is reviewed. Cross-phase evidence handoff is fixed by [ADR 0016](adr/0016-evidence-bundle-and-canonical-comparison-boundary.md); its initial shared vocabulary is represented by `EvidenceBundle` and `memory/evidence-bundle.schema.json`, with mapping rules in [evidence-bundles.md](implementation/evidence-bundles.md).
+P1, P2, P3, and P4 now have ADR boundaries. P3 remains the current implemented capability. Cross-phase evidence handoff is fixed by [ADR 0016](adr/0016-evidence-bundle-and-canonical-comparison-boundary.md); its initial shared vocabulary is represented by `EvidenceBundle` and `memory/evidence-bundle.schema.json`, with mapping rules in [evidence-bundles.md](implementation/evidence-bundles.md).
 
 ## P1: offline mutation verifier
 
@@ -115,3 +115,17 @@ P3 requires:
 The initial P3 slice intentionally stops before `nixos-install`, target-root writes, partitioning, or installed-root evaluation. Those require separate external grounding and explicit approval because they cross into live install side effects.
 
 P3 does not include AI patch generation, live autonomous mutation, automatic revert, organ registry promotion, full installer UX, partitioning wizard, GUI, or remote/cloud install.
+
+## P4: organ registry and decay review
+
+P4 tracks reusable system parts as organs and reviews decay without deleting or changing the live system. Its scope is fixed by [ADR 0017](adr/0017-p4-organ-registry-and-decay-review-boundary.md).
+
+P4 requires:
+
+- an organ registry record for organ name, type, source, purpose, creator, usage, failures, related goals, and decay status;
+- a registry journal that can be validated against `memory/organ.schema.json` — implemented by `memory/organs.jsonl` entries written by `mutation-journal organ add`;
+- a CLI path to register organs and read the registry — implemented by `mutation-journal organ add` and `mutation-journal organ list`;
+- a decay review output that groups organs as active, candidate, stale, duplicate, failed, or unknown — implemented by read-only `mutation-journal organ review`;
+- no automatic deletion or live mutation from decay review alone.
+
+P4 does not include autonomous organ promotion, automatic removal, dependency addition, live activation, GUI registry management, or remote/cloud registry sync.
