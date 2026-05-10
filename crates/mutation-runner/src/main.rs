@@ -105,6 +105,8 @@ impl From<PromoteArgs> for PromoteConfig {
 struct InstallPlanArgs {
     #[arg(long, default_value = "memory/mutation-promotions.jsonl")]
     promotion_journal: PathBuf,
+    #[arg(long, default_value = "memory/mutation-results.jsonl")]
+    verification_journal: PathBuf,
     #[arg(long, default_value = "memory/generations.jsonl")]
     generation_journal: PathBuf,
     #[arg(long)]
@@ -125,6 +127,7 @@ impl From<InstallPlanArgs> for InstallPlanConfig {
     fn from(value: InstallPlanArgs) -> Self {
         Self {
             promotion_journal_path: value.promotion_journal,
+            verification_journal_path: value.verification_journal,
             generation_journal_path: value.generation_journal,
             promotion_id: value.promotion_id,
             mutation_id: value.mutation_id,

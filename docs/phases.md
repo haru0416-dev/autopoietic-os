@@ -108,7 +108,7 @@ P3 requires:
 - dry-run or plan output before any install-side effect — implemented by default dry-run JSON output from `mutation-runner install-plan`;
 - no destructive disk or live-system operation without explicit approval;
 - generation lineage records linking mutation ID, parent generation, resulting generation, activation or install result, changed organs, lineage status, and verifier evidence — implemented for planned installs by `GenerationRecord` fields and optional `--record` journal writes;
-- installed-system Autopoietic memory seed for identity, mutation results, generation ledger, and effect ledger;
+- installed-system Autopoietic memory seed for identity, mutation results, generation ledger, and effect ledger — initially represented as a dry-run seed manifest in `mutation-runner install-plan` output;
 - post-install verification that the installed root can be evaluated and that lineage entries are readable;
 - effect ledger entries for non-Nix side effects caused by install workflow steps.
 

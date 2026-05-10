@@ -4,7 +4,7 @@ P3 begins with a dry-run install-plan boundary. The goal is to connect P2 promot
 
 ## Scope
 
-`mutation-runner install-plan` reads promotion evidence from `memory/mutation-promotions.jsonl` by default and selects a record by `--promotion-id` or `--mutation-id`. If `--mutation-id` matches more than one promotion record, the command rejects the plan and requires `--promotion-id` to avoid binding generation lineage to the wrong evidence.
+`mutation-runner install-plan` reads promotion evidence from `memory/mutation-promotions.jsonl` and P1 verification evidence from `memory/mutation-results.jsonl` by default. It selects a promotion record by `--promotion-id` or `--mutation-id`. If `--mutation-id` matches more than one promotion record, the command rejects the plan and requires `--promotion-id` to avoid binding generation lineage to the wrong evidence.
 
 The selected record must be `promoted` and must include non-empty passing VM check evidence. Rejected, errored, incomplete, or non-passing promotion evidence cannot enter P3 generation lineage.
 
@@ -14,7 +14,7 @@ The command requires:
 - `--parent-generation`;
 - `--resulting-generation`.
 
-By default, the command prints a `GenerationRecord` as JSON and does not write any journal. Passing `--record` appends the same record to `memory/generations.jsonl`. The generation journal path must not be inside the install target root.
+By default, the command prints an install-plan JSON object containing a `generation` record and a `seed_manifest`. It does not write any target-root file. Passing `--record` appends only the `generation` record to `memory/generations.jsonl`. The generation journal path must not be inside the install target root and must not traverse symlinks.
 
 ## Evidence carried forward
 
@@ -32,6 +32,18 @@ It also carries P2 fingerprints in metadata:
 - `proposal_fingerprint`;
 - `verified_root_fingerprint`;
 - `promotion_root_fingerprint`.
+
+## Seed manifest
+
+The seed manifest lists the target-root files a later install execution would write. Each file entry includes:
+
+- `installed_path`, the logical path inside the installed system;
+- `target_path`, the path under the explicit `--target-root`;
+- `source`, the evidence or synthetic seed source;
+- `content_sha256`, a digest of the planned JSON content;
+- `effect`, the planned effect-ledger shape for that future write.
+
+The initial manifest covers identity, P1 verification record, P2 promotion evidence, generation lineage, and planned effect ledger seed files. Ledger seed hashes are computed from JSONL entries that match the corresponding local Rust record types. It is a plan only; no listed `target_path` is created by `install-plan`.
 
 ## Safety boundary
 

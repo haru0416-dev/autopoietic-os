@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopoietic-os.local/schemas/install-seed-manifest.schema.json",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "target_root", "mutation_id", "promotion_id", "lineage_status", "files"],
+  "properties": {
+    "schema_version": { "const": "0.1.0" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "target_root": { "type": "string" },
+    "mutation_id": { "type": "string" },
+    "promotion_id": { "type": "string" },
+    "lineage_status": { "enum": ["planned", "installed", "failed"] },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["installed_path", "target_path", "source", "content_sha256", "effect"],
+        "properties": {
+          "installed_path": { "type": "string", "pattern": "^/" },
+          "target_path": { "type": "string" },
+          "source": { "type": "string" },
+          "content_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "effect": {
+            "type": "object",
+            "required": ["type", "target", "reversible", "compensation", "verified_by", "risk"],
+            "properties": {
+              "type": { "type": "string" },
+              "target": { "type": "string" },
+              "reversible": { "type": "boolean" },
+              "compensation": { "type": "string" },
+              "verified_by": { "type": "string" },
+              "risk": { "enum": ["low", "medium", "high", "irreversible"] },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

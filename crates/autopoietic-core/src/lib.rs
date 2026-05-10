@@ -331,6 +331,45 @@ pub struct GenerationRecord {
     pub metadata: BTreeMap<String, String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlannedEffect {
+    #[serde(rename = "type")]
+    pub effect_type: String,
+    pub target: String,
+    pub reversible: bool,
+    pub compensation: String,
+    pub verified_by: String,
+    pub risk: EffectRisk,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InstallSeedFilePlan {
+    pub installed_path: String,
+    pub target_path: String,
+    pub source: String,
+    pub content_sha256: String,
+    pub effect: PlannedEffect,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InstallSeedManifest {
+    pub schema_version: String,
+    pub generated_at: String,
+    pub target_root: String,
+    pub mutation_id: String,
+    pub promotion_id: String,
+    pub lineage_status: LineageStatus,
+    pub files: Vec<InstallSeedFilePlan>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InstallPlanOutput {
+    pub generation: GenerationRecord,
+    pub seed_manifest: InstallSeedManifest,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum OrganType {

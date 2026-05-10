@@ -35,7 +35,7 @@ mutation-runner install-plan --mutation-id mut-example --target-root /mnt/autopo
 
 For authored mutations, prefer `proposal.json` plus a sibling `patch.diff`; inline JSON patch strings are supported mainly for small tests and compatibility.
 Promotion reads P1 verification evidence from `memory/mutation-results.jsonl` by default and appends P2 promotion evidence to `memory/mutation-promotions.jsonl`.
-Install planning reads P2 promotion evidence from `memory/mutation-promotions.jsonl` by default. It prints a dry-run generation lineage record with `lineage_status: planned` unless `--record` is passed; it does not run `nixos-install` or mutate a target root.
+Install planning reads P2 promotion evidence and P1 verification evidence from `memory/` journals by default. It prints a dry-run install-plan object with `lineage_status: planned` and a seed manifest unless `--record` is passed; it does not run `nixos-install` or mutate a target root.
 
 ## ISO smoke test
 
