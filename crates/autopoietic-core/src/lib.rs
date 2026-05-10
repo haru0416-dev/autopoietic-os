@@ -635,6 +635,135 @@ impl MutationPromotionRecord {
     }
 }
 
+impl InstallPlanOutput {
+    pub fn to_evidence_bundle(&self, raw_ref: ProvenanceRef) -> EvidenceBundle {
+        let generation = &self.generation;
+        let manifest = &self.seed_manifest;
+        let record_ref = format!("observation:{}:install-plan", generation.generation);
+        let status_fact_ref = format!("fact:{}:lineage-status", generation.generation);
+        let root_comparison = install_plan_root_comparison(generation);
+        let mut backing = vec![record_ref.clone(), status_fact_ref];
+        if let Some(comparison) = &root_comparison {
+            backing.push(comparison.comparison_id.clone());
+        }
+
+        EvidenceBundle {
+            schema_version: "0.1.0".to_owned(),
+            bundle_id: format!("evidence:install-plan:{}", generation.generation),
+            phase: "P3".to_owned(),
+            subject: EvidenceSubject {
+                mutation_id: generation.mutation_id.clone(),
+                proposal_fingerprint: generation
+                    .metadata
+                    .get("proposal_fingerprint")
+                    .cloned()
+                    .unwrap_or_else(|| "unknown:not-carried-by-generation-record".to_owned()),
+                root_fingerprint: generation
+                    .metadata
+                    .get("promotion_root_fingerprint")
+                    .cloned(),
+                generation_id: Some(generation.generation.clone()),
+                metadata: BTreeMap::from([
+                    ("promotion_id".to_owned(), manifest.promotion_id.clone()),
+                    ("target_root".to_owned(), manifest.target_root.clone()),
+                ]),
+            },
+            inputs: vec![evidence_input(
+                format!("input:{}:install-plan-output", generation.generation),
+                "install-plan-output",
+                raw_ref.clone(),
+            )],
+            observations: vec![EvidenceObservation {
+                observation_id: record_ref,
+                kind: "install-plan-output".to_owned(),
+                summary: "dry-run install plan and seed manifest generated".to_owned(),
+                quality: DataQuality::Observed,
+                observed_at: Some(manifest.generated_at.clone()),
+                raw_ref,
+                metadata: BTreeMap::new(),
+            }],
+            canonical_facts: install_plan_canonical_facts(self),
+            comparisons: root_comparison.into_iter().collect(),
+            claims: vec![EvidenceClaim {
+                claim_id: format!("claim:{}:install-planned", generation.generation),
+                claim: "install planned".to_owned(),
+                quality: DataQuality::Derived,
+                backing,
+                limits: vec![
+                    "install-plan does not write to the target root".to_owned(),
+                    "planned lineage is not an installed generation".to_owned(),
+                    "seed hashes are planned content, not observed target-root files".to_owned(),
+                ],
+                metadata: BTreeMap::new(),
+            }],
+            metadata: BTreeMap::new(),
+        }
+    }
+}
+
+impl InstallVerifyOutput {
+    pub fn to_evidence_bundle(&self, raw_ref: ProvenanceRef) -> EvidenceBundle {
+        let record_ref = format!("observation:{}:install-verify", self.promotion_id);
+        let status_fact_ref = format!("fact:{}:all-matched", self.promotion_id);
+        let comparisons = install_verify_comparisons(self);
+        let mut backing = vec![record_ref.clone(), status_fact_ref];
+        backing.extend(
+            comparisons
+                .iter()
+                .map(|comparison| comparison.comparison_id.clone()),
+        );
+
+        EvidenceBundle {
+            schema_version: "0.1.0".to_owned(),
+            bundle_id: format!("evidence:install-verify:{}", self.promotion_id),
+            phase: "P3".to_owned(),
+            subject: EvidenceSubject {
+                mutation_id: self.mutation_id.clone(),
+                proposal_fingerprint: "unknown:not-carried-by-install-verify-output".to_owned(),
+                root_fingerprint: None,
+                generation_id: None,
+                metadata: BTreeMap::from([
+                    ("promotion_id".to_owned(), self.promotion_id.clone()),
+                    ("target_root".to_owned(), self.target_root.clone()),
+                ]),
+            },
+            inputs: vec![evidence_input(
+                format!("input:{}:install-verify-output", self.promotion_id),
+                "install-verify-output",
+                raw_ref.clone(),
+            )],
+            observations: vec![EvidenceObservation {
+                observation_id: record_ref,
+                kind: "install-verify-output".to_owned(),
+                summary: "read-only install seed verification completed".to_owned(),
+                quality: DataQuality::Observed,
+                observed_at: Some(self.verified_at.clone()),
+                raw_ref,
+                metadata: BTreeMap::new(),
+            }],
+            canonical_facts: install_verify_canonical_facts(self),
+            comparisons,
+            claims: vec![EvidenceClaim {
+                claim_id: format!("claim:{}:install-verify", self.promotion_id),
+                claim: if self.all_matched {
+                    "seed files verified".to_owned()
+                } else {
+                    "seed verification failed".to_owned()
+                },
+                quality: DataQuality::Derived,
+                backing,
+                limits: vec![
+                    "install-verify checks seed-file hashes only".to_owned(),
+                    "install-verify does not evaluate the installed NixOS configuration".to_owned(),
+                    "install-verify does not prove that nixos-install ran".to_owned(),
+                ],
+                metadata: BTreeMap::new(),
+            }],
+            metadata: BTreeMap::new(),
+        }
+    }
+}
+
 fn evidence_input(input_id: String, kind: &str, provenance: ProvenanceRef) -> EvidenceInputRef {
     EvidenceInputRef {
         input_id,
@@ -746,6 +875,155 @@ fn promotion_comparisons(record: &MutationPromotionRecord) -> Vec<ComparisonRepo
         quality: DataQuality::Verified,
         metadata: BTreeMap::new(),
     }]
+}
+
+fn install_plan_canonical_facts(plan: &InstallPlanOutput) -> Vec<CanonicalFact> {
+    let prefix = &plan.generation.generation;
+    let mut facts = vec![
+        canonical_fact(
+            prefix,
+            "mutation-id",
+            plan.generation.mutation_id.clone(),
+            &[],
+        ),
+        canonical_fact(
+            prefix,
+            "generation-id",
+            plan.generation.generation.clone(),
+            &[],
+        ),
+        canonical_fact(
+            prefix,
+            "lineage-status",
+            plan.generation.lineage_status,
+            &[],
+        ),
+        canonical_fact(
+            prefix,
+            "promotion-id",
+            plan.seed_manifest.promotion_id.clone(),
+            &[],
+        ),
+        canonical_fact(
+            prefix,
+            "target-root",
+            plan.seed_manifest.target_root.clone(),
+            &[],
+        ),
+        canonical_fact(
+            prefix,
+            "seed-file-hashes",
+            install_seed_hashes(&plan.seed_manifest.files),
+            &[],
+        ),
+    ];
+    if let Some(fingerprint) = plan.generation.metadata.get("verified_root_fingerprint") {
+        facts.push(canonical_fact(
+            prefix,
+            "verified-root-fingerprint",
+            fingerprint.clone(),
+            &[],
+        ));
+    }
+    if let Some(fingerprint) = plan.generation.metadata.get("promotion_root_fingerprint") {
+        facts.push(canonical_fact(
+            prefix,
+            "promotion-root-fingerprint",
+            fingerprint.clone(),
+            &[],
+        ));
+    }
+    facts
+}
+
+fn install_seed_hashes(files: &[InstallSeedFilePlan]) -> BTreeMap<String, String> {
+    files
+        .iter()
+        .map(|file| (file.installed_path.clone(), file.content_sha256.clone()))
+        .collect()
+}
+
+fn install_verify_canonical_facts(record: &InstallVerifyOutput) -> Vec<CanonicalFact> {
+    let prefix = &record.promotion_id;
+    vec![
+        canonical_fact(prefix, "mutation-id", record.mutation_id.clone(), &[]),
+        canonical_fact(prefix, "promotion-id", record.promotion_id.clone(), &[]),
+        canonical_fact(prefix, "target-root", record.target_root.clone(), &[]),
+        canonical_fact(prefix, "all-matched", record.all_matched, &[]),
+        canonical_fact(
+            prefix,
+            "seed-file-statuses",
+            install_seed_statuses(&record.files),
+            &[],
+        ),
+    ]
+}
+
+fn install_seed_statuses(
+    files: &[InstallSeedFileVerification],
+) -> BTreeMap<String, InstallSeedFileStatus> {
+    files
+        .iter()
+        .map(|file| (file.installed_path.clone(), file.status))
+        .collect()
+}
+
+fn install_plan_root_comparison(record: &GenerationRecord) -> Option<ComparisonReport> {
+    let verified = record.metadata.get("verified_root_fingerprint")?;
+    let promotion = record.metadata.get("promotion_root_fingerprint")?;
+    let status = if verified == promotion {
+        ComparisonStatus::Matched
+    } else {
+        ComparisonStatus::Stale
+    };
+    let reason = if status == ComparisonStatus::Matched {
+        "P1 verified root fingerprint matches P2 promotion root fingerprint".to_owned()
+    } else {
+        "P1 verified root fingerprint differs from P2 promotion root fingerprint".to_owned()
+    };
+    Some(ComparisonReport {
+        comparison_id: format!(
+            "comparison:{}:verified-root-vs-promotion-root",
+            record.generation
+        ),
+        left_ref: format!("fact:{}:verified-root-fingerprint", record.generation),
+        right_ref: format!("fact:{}:promotion-root-fingerprint", record.generation),
+        status,
+        reason,
+        quality: DataQuality::Verified,
+        metadata: BTreeMap::new(),
+    })
+}
+
+fn install_verify_comparisons(record: &InstallVerifyOutput) -> Vec<ComparisonReport> {
+    record
+        .files
+        .iter()
+        .map(|file| ComparisonReport {
+            comparison_id: format!(
+                "comparison:{}:seed-file:{}",
+                record.promotion_id, file.installed_path
+            ),
+            left_ref: format!("expected:{}:{}", record.promotion_id, file.installed_path),
+            right_ref: format!("actual:{}:{}", record.promotion_id, file.installed_path),
+            status: seed_file_status(file.status),
+            reason: file.reason.clone(),
+            quality: DataQuality::Verified,
+            metadata: BTreeMap::from([
+                ("target_path".to_owned(), file.target_path.clone()),
+                ("expected_sha256".to_owned(), file.expected_sha256.clone()),
+            ]),
+        })
+        .collect()
+}
+
+fn seed_file_status(status: InstallSeedFileStatus) -> ComparisonStatus {
+    match status {
+        InstallSeedFileStatus::Matched => ComparisonStatus::Matched,
+        InstallSeedFileStatus::Missing => ComparisonStatus::Missing,
+        InstallSeedFileStatus::Mismatched => ComparisonStatus::Mismatched,
+        InstallSeedFileStatus::Error => ComparisonStatus::Error,
+    }
 }
 
 fn compare_root_fingerprints(
@@ -910,6 +1188,102 @@ mod tests {
         }
     }
 
+    fn install_plan_output() -> InstallPlanOutput {
+        let promotion = promotion_record(PromotionStatus::Promoted);
+        let mut metadata = BTreeMap::new();
+        metadata.insert("parent_genome".to_owned(), promotion.parent_genome.clone());
+        metadata.insert(
+            "proposal_fingerprint".to_owned(),
+            promotion.proposal_fingerprint.clone(),
+        );
+        metadata.insert(
+            "verified_root_fingerprint".to_owned(),
+            promotion.verified_root_fingerprint.clone().unwrap(),
+        );
+        metadata.insert(
+            "promotion_root_fingerprint".to_owned(),
+            promotion.promotion_root_fingerprint.clone(),
+        );
+        InstallPlanOutput {
+            generation: GenerationRecord {
+                timestamp: "2026-05-10T00:00:00Z".to_owned(),
+                lineage_status: LineageStatus::Planned,
+                generation: "gen-test".to_owned(),
+                mutation_id: promotion.mutation_id.clone(),
+                goal: promotion.goal.clone(),
+                changed_organs: promotion.changed_organs.clone(),
+                parent_generation: Some("gen-parent".to_owned()),
+                activation_result: "planned-install".to_owned(),
+                verification_id: promotion.verification_id.clone(),
+                promotion_id: Some(promotion.promotion_id.clone()),
+                target_root: Some("/mnt/autopoietic".to_owned()),
+                target_configuration: Some(promotion.target_configuration.clone()),
+                metadata,
+            },
+            seed_manifest: InstallSeedManifest {
+                schema_version: "0.1.0".to_owned(),
+                generated_at: "2026-05-10T00:00:01Z".to_owned(),
+                target_root: "/mnt/autopoietic".to_owned(),
+                mutation_id: promotion.mutation_id,
+                promotion_id: promotion.promotion_id,
+                lineage_status: LineageStatus::Planned,
+                files: vec![InstallSeedFilePlan {
+                    installed_path: "/var/lib/autopoietic/generations.jsonl".to_owned(),
+                    target_path: "/mnt/autopoietic/var/lib/autopoietic/generations.jsonl"
+                        .to_owned(),
+                    source: "evidence:p3-generation-lineage-record".to_owned(),
+                    content_sha256:
+                        "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                            .to_owned(),
+                    effect: PlannedEffect {
+                        effect_type: "planned-seed-file-write".to_owned(),
+                        target: "/mnt/autopoietic/var/lib/autopoietic/generations.jsonl".to_owned(),
+                        reversible: false,
+                        compensation: "inspect target state before applying".to_owned(),
+                        verified_by: "mutation-runner install-plan".to_owned(),
+                        risk: EffectRisk::Medium,
+                        metadata: BTreeMap::new(),
+                    },
+                }],
+            },
+        }
+    }
+
+    fn install_verify_output(all_matched: bool) -> InstallVerifyOutput {
+        InstallVerifyOutput {
+            verified_at: "2026-05-10T00:00:02Z".to_owned(),
+            target_root: "/mnt/autopoietic".to_owned(),
+            mutation_id: "mut-test".to_owned(),
+            promotion_id: "pro-test".to_owned(),
+            all_matched,
+            files: vec![InstallSeedFileVerification {
+                installed_path: "/var/lib/autopoietic/generations.jsonl".to_owned(),
+                target_path: "/mnt/autopoietic/var/lib/autopoietic/generations.jsonl".to_owned(),
+                expected_sha256:
+                    "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                        .to_owned(),
+                actual_sha256: if all_matched {
+                    Some(
+                        "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                            .to_owned(),
+                    )
+                } else {
+                    None
+                },
+                status: if all_matched {
+                    InstallSeedFileStatus::Matched
+                } else {
+                    InstallSeedFileStatus::Missing
+                },
+                reason: if all_matched {
+                    "content hash matched".to_owned()
+                } else {
+                    "target file is missing".to_owned()
+                },
+            }],
+        }
+    }
+
     #[test]
     fn verification_record_maps_to_backed_evidence_bundle() {
         let bundle = verification_record(VerificationStatus::Verified)
@@ -983,5 +1357,41 @@ mod tests {
 
         assert_eq!(bundle.comparisons[0].status, ComparisonStatus::Incomparable);
         assert!(bundle.comparisons[0].reason.contains("unavailable"));
+    }
+
+    #[test]
+    fn install_plan_maps_to_planned_evidence_bundle() {
+        let bundle = install_plan_output().to_evidence_bundle(provenance("install-plan:stdout"));
+
+        assert_eq!(bundle.phase, "P3");
+        assert_eq!(bundle.subject.generation_id.as_deref(), Some("gen-test"));
+        assert_eq!(bundle.claims[0].claim, "install planned");
+        assert_eq!(bundle.comparisons[0].status, ComparisonStatus::Matched);
+        assert!(
+            bundle
+                .canonical_facts
+                .iter()
+                .any(|fact| fact.fact_id == "fact:gen-test:seed-file-hashes")
+        );
+    }
+
+    #[test]
+    fn install_verify_maps_seed_file_comparisons() {
+        let bundle = install_verify_output(true).to_evidence_bundle(provenance("install-verify"));
+
+        assert_eq!(bundle.phase, "P3");
+        assert_eq!(bundle.claims[0].claim, "seed files verified");
+        assert_eq!(bundle.comparisons[0].status, ComparisonStatus::Matched);
+        assert!(bundle.claims[0].backing.contains(
+            &"comparison:pro-test:seed-file:/var/lib/autopoietic/generations.jsonl".to_owned()
+        ));
+    }
+
+    #[test]
+    fn install_verify_maps_failed_seed_file_comparisons() {
+        let bundle = install_verify_output(false).to_evidence_bundle(provenance("install-verify"));
+
+        assert_eq!(bundle.claims[0].claim, "seed verification failed");
+        assert_eq!(bundle.comparisons[0].status, ComparisonStatus::Missing);
     }
 }

@@ -14,7 +14,7 @@ The command requires:
 - `--parent-generation`;
 - `--resulting-generation`.
 
-By default, the command prints an install-plan JSON object containing a `generation` record and a `seed_manifest`. It does not write any target-root file. Passing `--record` appends only the `generation` record to `memory/generations.jsonl`. The generation journal path must not be inside the install target root and must not traverse symlinks.
+By default, the command prints an install-plan JSON object containing a `generation` record and a `seed_manifest`. It does not write any target-root file. Passing `--record` appends only the `generation` record to `memory/generations.jsonl`. Passing `--evidence-bundle <path>` attempts to write a derived, non-gating P3 EvidenceBundle sidecar. The generation journal path must not be inside the install target root and must not traverse symlinks when `--record` is used.
 
 ## Evidence carried forward
 
@@ -53,7 +53,7 @@ Real install execution, installed memory seeding, effect ledger writes for targe
 
 ## Read-only seed verification
 
-`mutation-runner install-verify --plan <plan.json>` reads an install-plan output and verifies the target files listed in `seed_manifest.files` without writing anything. The verifier treats each seed entry as a regular file whose `target_path` must equal `target_root` plus the entry's absolute `installed_path`. Each file is reported as:
+`mutation-runner install-verify --plan <plan.json>` reads an install-plan output and verifies the target files listed in `seed_manifest.files` without writing anything. Passing `--evidence-bundle <path>` attempts to write a derived, non-gating EvidenceBundle sidecar for the read-only verification result. The verifier treats each seed entry as a regular file whose `target_path` must equal `target_root` plus the entry's absolute `installed_path`. Each file is reported as:
 
 - `matched`, when the target file exists and its SHA-256 matches `content_sha256`;
 - `missing`, when the target file is absent;

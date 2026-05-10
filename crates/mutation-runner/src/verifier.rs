@@ -956,7 +956,7 @@ pub(crate) fn optional_evidence_bundle_path(
     resolved
 }
 
-fn warn_evidence_bundle_failure(context: &str, error: anyhow::Error) {
+pub(crate) fn warn_evidence_bundle_failure(context: &str, error: anyhow::Error) {
     eprintln!("warning: skipped {context} EvidenceBundle output: {error:#}");
 }
 

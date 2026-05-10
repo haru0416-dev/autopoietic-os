@@ -16,7 +16,7 @@ Derived claims must not stand alone. A claim is usable by a later phase only whe
 
 ## Current vocabulary
 
-The initial shared vocabulary lives in `autopoietic-core` and `memory/evidence-bundle.schema.json`. P1 and P2 records also have pure Rust mapping functions into `EvidenceBundle`; optional CLI sidecar emission uses those mappings without changing the verifier/promoter gates.
+The initial shared vocabulary lives in `autopoietic-core` and `memory/evidence-bundle.schema.json`. P1, P2, and the current P3 install-plan / install-verify outputs have pure Rust mapping functions into `EvidenceBundle`; optional CLI sidecar emission uses those mappings without changing the primary phase gates.
 
 - `EvidenceBundle`: phase handoff envelope.
 - `EvidenceSubject`: mutation/proposal/root or generation identity.
@@ -112,7 +112,7 @@ Limits:
 
 P3 has two evidence-producing shapes today: `install-plan` and `install-verify`.
 
-For `install-plan`, the bundle should bind a promoted P2 record to a planned generation and seed manifest.
+For `install-plan`, the bundle binds a promoted P2 record to a planned generation and seed manifest.
 
 Subject:
 
@@ -136,7 +136,7 @@ Limits:
 - `install-plan` does not write to the target root.
 - `lineage_status: planned` is not an installed generation.
 
-For `install-verify`, the bundle should compare the seed manifest against files currently visible under the target root.
+For `install-verify`, the bundle compares the seed manifest against files currently visible under the target root.
 
 Comparisons:
 
@@ -199,6 +199,6 @@ Rules:
 
 1. Keep the current P1/P2/P3 records as the primary executable records.
 2. Add pure mapping functions from those records into `EvidenceBundle` — implemented for P1 verification and P2 promotion records.
-3. Add P3 `install-plan` and `install-verify` mapping functions once their proposal fingerprint and generation identity inputs are explicit.
-4. Emit optional bundle files or JSON output only after the mappings are tested — implemented for P1 verification and P2 promotion as non-gating sidecars.
+3. Add P3 `install-plan` and `install-verify` mapping functions once their proposal fingerprint and generation identity inputs are explicit — implemented for the current P3 records.
+4. Emit optional bundle files or JSON output only after the mappings are tested — implemented for P1 verification, P2 promotion, and current P3 install-plan / install-verify outputs as non-gating sidecars.
 5. Use bundles as gates only after P1/P2/P3 behavior remains unchanged under the new evidence layer.

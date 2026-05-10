@@ -17,7 +17,10 @@ use chrono::Utc;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::verifier::append_jsonl;
+use crate::verifier::{
+    append_jsonl, evidence_provenance, optional_evidence_bundle_path, warn_evidence_bundle_failure,
+    write_json,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct InstallPlanConfig {
@@ -30,32 +33,63 @@ pub(crate) struct InstallPlanConfig {
     pub(crate) parent_generation: String,
     pub(crate) resulting_generation: String,
     pub(crate) record: bool,
+    pub(crate) evidence_bundle_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct InstallVerifyConfig {
     pub(crate) plan_path: PathBuf,
+    pub(crate) evidence_bundle_path: Option<PathBuf>,
 }
 
 pub(crate) fn install_plan_and_record(config: InstallPlanConfig) -> Result<InstallPlanOutput> {
+    let evidence_bundle_path = optional_p3_evidence_bundle_path(
+        "install-plan",
+        config.evidence_bundle_path.as_deref(),
+        &[
+            &config.promotion_journal_path,
+            &config.verification_journal_path,
+            &config.generation_journal_path,
+        ],
+        &config.target_root,
+    );
     let promotion = read_selected_promotion(&config)?;
     validate_install_plan_input(&config, &promotion)?;
     let verification = read_selected_verification(&config, &promotion)?;
     validate_verification_seed(&promotion, &verification)?;
     let record = generation_record(&config, &promotion);
     let seed_manifest = seed_manifest(&config, &promotion, &verification, &record)?;
-    if config.record {
-        append_jsonl(&config.generation_journal_path, &record)?;
-    }
-    Ok(InstallPlanOutput {
+    let output = InstallPlanOutput {
         generation: record,
         seed_manifest,
-    })
+    };
+    if config.record {
+        append_jsonl(&config.generation_journal_path, &output.generation)?;
+    }
+    if let Some(path) = &evidence_bundle_path {
+        let write_result = evidence_provenance(
+            "install-plan-output",
+            "mutation-runner install-plan output".to_owned(),
+            "0.1.0",
+            &output,
+        )
+        .and_then(|provenance| write_json(path, &output.to_evidence_bundle(provenance)));
+        if let Err(error) = write_result {
+            warn_evidence_bundle_failure("install-plan", error);
+        }
+    }
+    Ok(output)
 }
 
 pub(crate) fn verify_install_plan(config: InstallVerifyConfig) -> Result<InstallVerifyOutput> {
     let plan = read_install_plan_output(&config.plan_path)?;
     validate_install_verify_plan(&plan)?;
+    let evidence_bundle_path = optional_p3_evidence_bundle_path(
+        "install-verify",
+        config.evidence_bundle_path.as_deref(),
+        &[&config.plan_path],
+        Path::new(&plan.seed_manifest.target_root),
+    );
     let files = plan
         .seed_manifest
         .files
@@ -65,14 +99,56 @@ pub(crate) fn verify_install_plan(config: InstallVerifyConfig) -> Result<Install
     let all_matched = files
         .iter()
         .all(|file| file.status == InstallSeedFileStatus::Matched);
-    Ok(InstallVerifyOutput {
+    let output = InstallVerifyOutput {
         verified_at: Utc::now().to_rfc3339(),
         target_root: plan.seed_manifest.target_root,
         mutation_id: plan.seed_manifest.mutation_id,
         promotion_id: plan.seed_manifest.promotion_id,
         all_matched,
         files,
-    })
+    };
+    if let Some(path) = &evidence_bundle_path {
+        let write_result = evidence_provenance(
+            "install-verify-output",
+            "mutation-runner install-verify output".to_owned(),
+            "0.1.0",
+            &output,
+        )
+        .and_then(|provenance| write_json(path, &output.to_evidence_bundle(provenance)));
+        if let Err(error) = write_result {
+            warn_evidence_bundle_failure("install-verify", error);
+        }
+    }
+    Ok(output)
+}
+
+fn optional_p3_evidence_bundle_path(
+    context: &str,
+    evidence_bundle_path: Option<&Path>,
+    protected_paths: &[&Path],
+    target_root: &Path,
+) -> Option<PathBuf> {
+    let path = optional_evidence_bundle_path(context, evidence_bundle_path, protected_paths)?;
+    match evidence_bundle_is_inside_target_root(&path, target_root) {
+        Ok(true) => {
+            warn_evidence_bundle_failure(
+                context,
+                anyhow::anyhow!("EvidenceBundle output must not be inside the P3 target root"),
+            );
+            None
+        }
+        Ok(false) => Some(path),
+        Err(error) => {
+            warn_evidence_bundle_failure(context, error);
+            None
+        }
+    }
+}
+
+fn evidence_bundle_is_inside_target_root(path: &Path, target_root: &Path) -> Result<bool> {
+    let path = absolute_path(path).context("failed to resolve EvidenceBundle output path")?;
+    let target_root = absolute_path(target_root).context("failed to resolve P3 target root")?;
+    Ok(normalized_starts_with(&path, &target_root))
 }
 
 fn validate_install_verify_plan(plan: &InstallPlanOutput) -> Result<()> {
@@ -902,6 +978,13 @@ mod tests {
         .expect("install plan should be written");
     }
 
+    fn install_verify_config(plan_path: PathBuf) -> InstallVerifyConfig {
+        InstallVerifyConfig {
+            plan_path,
+            evidence_bundle_path: None,
+        }
+    }
+
     fn config(root: &Path) -> InstallPlanConfig {
         let verification_journal_path = root.join("verifications.jsonl");
         if !verification_journal_path.exists() {
@@ -917,6 +1000,7 @@ mod tests {
             parent_generation: "gen-parent".to_owned(),
             resulting_generation: "gen-child".to_owned(),
             record: false,
+            evidence_bundle_path: None,
         }
     }
 
@@ -954,6 +1038,58 @@ mod tests {
                 .any(|file| { file.installed_path == "/var/lib/autopoietic/generations.jsonl" })
         );
         assert!(!root.join("generations.jsonl").exists());
+    }
+
+    #[test]
+    fn install_plan_can_write_evidence_bundle() {
+        let root = temp_root("install-plan-evidence-bundle");
+        let promotion_journal = root.join("promotions.jsonl");
+        let bundle_path = root.join("evidence/install-plan.json");
+        write_promotion(&promotion_journal, &promotion(PromotionStatus::Promoted));
+        let mut config = config(&root);
+        config.evidence_bundle_path = Some(bundle_path.clone());
+
+        let output = install_plan_and_record(config).expect("install plan should be built");
+
+        let bundle: autopoietic_core::EvidenceBundle = serde_json::from_slice(
+            &fs::read(bundle_path).expect("install-plan bundle should be written"),
+        )
+        .expect("install-plan bundle should parse");
+        assert_eq!(bundle.phase, "P3");
+        assert_eq!(bundle.subject.generation_id.as_deref(), Some("gen-child"));
+        assert_eq!(bundle.claims[0].claim, "install planned");
+        assert_eq!(output.generation.generation, "gen-child");
+    }
+
+    #[test]
+    fn install_plan_skips_evidence_bundle_overwriting_generation_journal_without_changing_gate() {
+        let root = temp_root("install-plan-evidence-overwrite-generation");
+        let promotion_journal = root.join("promotions.jsonl");
+        write_promotion(&promotion_journal, &promotion(PromotionStatus::Promoted));
+        let mut config = config(&root);
+        config.evidence_bundle_path = Some(config.generation_journal_path.clone());
+
+        let output =
+            install_plan_and_record(config).expect("unsafe bundle path should not gate P3");
+
+        assert_eq!(output.generation.lineage_status, LineageStatus::Planned);
+        assert!(!root.join("generations.jsonl").exists());
+    }
+
+    #[test]
+    fn install_plan_skips_evidence_bundle_inside_target_root_without_changing_gate() {
+        let root = temp_root("install-plan-evidence-inside-target-root");
+        let promotion_journal = root.join("promotions.jsonl");
+        write_promotion(&promotion_journal, &promotion(PromotionStatus::Promoted));
+        let mut config = config(&root);
+        let bundle_path = config.target_root.join("memory/evidence/install-plan.json");
+        config.evidence_bundle_path = Some(bundle_path.clone());
+
+        let output =
+            install_plan_and_record(config).expect("target-root bundle path should not gate P3");
+
+        assert_eq!(output.generation.lineage_status, LineageStatus::Planned);
+        assert!(!bundle_path.exists());
     }
 
     #[test]
@@ -1083,7 +1219,7 @@ mod tests {
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let output = verify_install_plan(InstallVerifyConfig { plan_path })
+        let output = verify_install_plan(install_verify_config(plan_path))
             .expect("install verification should run");
 
         assert!(output.all_matched);
@@ -1095,13 +1231,97 @@ mod tests {
     }
 
     #[test]
+    fn install_verify_can_write_evidence_bundle() {
+        let root = temp_root("install-verify-evidence-bundle");
+        let content = br#"{"host":"iso"}"#;
+        let plan = verify_plan(&root, sha256(content));
+        let target_path = PathBuf::from(&plan.seed_manifest.files[0].target_path);
+        fs::create_dir_all(target_path.parent().expect("target file has parent"))
+            .expect("target parent should be created");
+        fs::write(&target_path, content).expect("target file should be written");
+        let plan_path = root.join("plan.json");
+        let bundle_path = root.join("evidence/install-verify.json");
+        write_install_plan(&plan_path, &plan);
+
+        let output = verify_install_plan(InstallVerifyConfig {
+            plan_path,
+            evidence_bundle_path: Some(bundle_path.clone()),
+        })
+        .expect("install verification should run");
+
+        assert!(output.all_matched);
+        let bundle: autopoietic_core::EvidenceBundle = serde_json::from_slice(
+            &fs::read(bundle_path).expect("install-verify bundle should be written"),
+        )
+        .expect("install-verify bundle should parse");
+        assert_eq!(bundle.claims[0].claim, "seed files verified");
+        assert_eq!(
+            bundle.comparisons[0].status,
+            autopoietic_core::ComparisonStatus::Matched
+        );
+        assert_eq!(
+            bundle.observations[0].raw_ref.source,
+            "mutation-runner install-verify output"
+        );
+    }
+
+    #[test]
+    fn install_verify_skips_evidence_bundle_overwriting_plan_without_changing_gate() {
+        let root = temp_root("install-verify-evidence-overwrite-plan");
+        let content = br#"{"host":"iso"}"#;
+        let plan = verify_plan(&root, sha256(content));
+        let target_path = PathBuf::from(&plan.seed_manifest.files[0].target_path);
+        fs::create_dir_all(target_path.parent().expect("target file has parent"))
+            .expect("target parent should be created");
+        fs::write(&target_path, content).expect("target file should be written");
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let output = verify_install_plan(InstallVerifyConfig {
+            plan_path: plan_path.clone(),
+            evidence_bundle_path: Some(plan_path.clone()),
+        })
+        .expect("unsafe bundle path should not gate install verification");
+
+        assert!(output.all_matched);
+        let preserved: InstallPlanOutput =
+            serde_json::from_slice(&fs::read(plan_path).expect("plan should remain readable"))
+                .expect("plan should remain an install plan");
+        assert_eq!(preserved.seed_manifest.promotion_id, "pro-test");
+    }
+
+    #[test]
+    fn install_verify_skips_evidence_bundle_inside_target_root_without_changing_gate() {
+        let root = temp_root("install-verify-evidence-inside-target-root");
+        let content = br#"{"host":"iso"}"#;
+        let plan = verify_plan(&root, sha256(content));
+        let target_path = PathBuf::from(&plan.seed_manifest.files[0].target_path);
+        fs::create_dir_all(target_path.parent().expect("target file has parent"))
+            .expect("target parent should be created");
+        fs::write(&target_path, content).expect("target file should be written");
+        let bundle_path = PathBuf::from(&plan.seed_manifest.target_root)
+            .join("memory/evidence/install-verify.json");
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let output = verify_install_plan(InstallVerifyConfig {
+            plan_path,
+            evidence_bundle_path: Some(bundle_path.clone()),
+        })
+        .expect("target-root bundle path should not gate install verification");
+
+        assert!(output.all_matched);
+        assert!(!bundle_path.exists());
+    }
+
+    #[test]
     fn install_verify_reports_missing_seed_files() {
         let root = temp_root("install-verify-missing");
         let plan = verify_plan(&root, sha256(b"expected"));
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let output = verify_install_plan(InstallVerifyConfig { plan_path })
+        let output = verify_install_plan(install_verify_config(plan_path))
             .expect("install verification should run");
 
         assert!(!output.all_matched);
@@ -1119,7 +1339,7 @@ mod tests {
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let output = verify_install_plan(InstallVerifyConfig { plan_path })
+        let output = verify_install_plan(install_verify_config(plan_path))
             .expect("install verification should run");
 
         assert!(!output.all_matched);
@@ -1144,7 +1364,7 @@ mod tests {
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let output = verify_install_plan(InstallVerifyConfig { plan_path })
+        let output = verify_install_plan(install_verify_config(plan_path))
             .expect("non-regular target path produces a verification report");
 
         assert!(!output.all_matched);
@@ -1160,7 +1380,7 @@ mod tests {
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+        let error = verify_install_plan(install_verify_config(plan_path))
             .expect_err("empty manifest fails");
 
         assert!(error.to_string().contains("no files"));
@@ -1174,7 +1394,7 @@ mod tests {
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+        let error = verify_install_plan(install_verify_config(plan_path))
             .expect_err("unsupported schema version fails");
 
         assert!(error.to_string().contains("schema_version"));
@@ -1188,7 +1408,7 @@ mod tests {
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+        let error = verify_install_plan(install_verify_config(plan_path))
             .expect_err("malformed content hash fails");
 
         assert!(error.to_string().contains("content_sha256"));
@@ -1202,7 +1422,7 @@ mod tests {
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+        let error = verify_install_plan(install_verify_config(plan_path))
             .expect_err("relative installed path fails");
 
         assert!(error.to_string().contains("installed_path"));
@@ -1216,7 +1436,7 @@ mod tests {
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+        let error = verify_install_plan(install_verify_config(plan_path))
             .expect_err("parent components in installed path fail");
 
         assert!(error.to_string().contains("parent components"));
@@ -1230,7 +1450,7 @@ mod tests {
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+        let error = verify_install_plan(install_verify_config(plan_path))
             .expect_err("relative target path fails");
 
         assert!(error.to_string().contains("must be absolute"));
@@ -1244,7 +1464,7 @@ mod tests {
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+        let error = verify_install_plan(install_verify_config(plan_path))
             .expect_err("outside target path fails");
 
         assert!(error.to_string().contains("outside target_root"));
@@ -1261,7 +1481,7 @@ mod tests {
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+        let error = verify_install_plan(install_verify_config(plan_path))
             .expect_err("target path must match installed path");
 
         assert!(error.to_string().contains("installed_path"));
@@ -1284,7 +1504,7 @@ mod tests {
         let plan_path = root.join("plan.json");
         write_install_plan(&plan_path, &plan);
 
-        let output = verify_install_plan(InstallVerifyConfig { plan_path })
+        let output = verify_install_plan(install_verify_config(plan_path))
             .expect("symlink target path produces a verification report");
 
         assert!(!output.all_matched);

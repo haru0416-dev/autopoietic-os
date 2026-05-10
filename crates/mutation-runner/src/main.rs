@@ -130,6 +130,8 @@ struct InstallPlanArgs {
     resulting_generation: String,
     #[arg(long, default_value_t = false)]
     record: bool,
+    #[arg(long)]
+    evidence_bundle: Option<PathBuf>,
 }
 
 impl From<InstallPlanArgs> for InstallPlanConfig {
@@ -144,6 +146,7 @@ impl From<InstallPlanArgs> for InstallPlanConfig {
             parent_generation: value.parent_generation,
             resulting_generation: value.resulting_generation,
             record: value.record,
+            evidence_bundle_path: value.evidence_bundle,
         }
     }
 }
@@ -152,12 +155,15 @@ impl From<InstallPlanArgs> for InstallPlanConfig {
 struct InstallVerifyArgs {
     #[arg(long)]
     plan: PathBuf,
+    #[arg(long)]
+    evidence_bundle: Option<PathBuf>,
 }
 
 impl From<InstallVerifyArgs> for InstallVerifyConfig {
     fn from(value: InstallVerifyArgs) -> Self {
         Self {
             plan_path: value.plan,
+            evidence_bundle_path: value.evidence_bundle,
         }
     }
 }
