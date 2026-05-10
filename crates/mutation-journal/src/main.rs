@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use autopoietic_core::{
-    EffectRecord, EffectRisk, GenerationRecord, MutationRecord, MutationStatus,
+    EffectRecord, EffectRisk, GenerationRecord, LineageStatus, MutationRecord, MutationStatus,
 };
 use chrono::Utc;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -113,6 +113,8 @@ struct EffectArgs {
 struct GenerationArgs {
     #[arg(long, default_value = "memory/generations.jsonl")]
     path: PathBuf,
+    #[arg(long, value_enum, default_value_t = LineageStatusArg::Installed)]
+    lineage_status: LineageStatusArg,
     #[arg(long)]
     generation: String,
     #[arg(long)]
@@ -135,6 +137,23 @@ struct GenerationArgs {
     target_configuration: Option<String>,
     #[arg(long = "metadata")]
     metadata: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum LineageStatusArg {
+    Planned,
+    Installed,
+    Failed,
+}
+
+impl From<LineageStatusArg> for LineageStatus {
+    fn from(value: LineageStatusArg) -> Self {
+        match value {
+            LineageStatusArg::Planned => Self::Planned,
+            LineageStatusArg::Installed => Self::Installed,
+            LineageStatusArg::Failed => Self::Failed,
+        }
+    }
 }
 
 fn now_iso() -> String {
@@ -212,6 +231,7 @@ fn append_effect(args: EffectArgs) -> Result<EffectRecord> {
 fn append_generation(args: GenerationArgs) -> Result<GenerationRecord> {
     let record = GenerationRecord {
         timestamp: now_iso(),
+        lineage_status: args.lineage_status.into(),
         generation: args.generation,
         mutation_id: args.mutation_id,
         goal: args.goal,

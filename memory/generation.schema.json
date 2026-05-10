@@ -5,6 +5,7 @@
   "required": ["timestamp", "generation", "mutation_id", "goal", "activation_result"],
   "properties": {
     "timestamp": { "type": "string", "format": "date-time" },
+    "lineage_status": { "enum": ["planned", "installed", "failed"] },
     "generation": { "type": "string" },
     "mutation_id": { "type": "string" },
     "goal": { "type": "string" },

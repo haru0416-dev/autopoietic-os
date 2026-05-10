@@ -4,7 +4,8 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use autopoietic_core::{
-    GenerationRecord, MutationPromotionRecord, PromotionStatus, VerificationCheckStatus,
+    GenerationRecord, LineageStatus, MutationPromotionRecord, PromotionStatus,
+    VerificationCheckStatus,
 };
 use chrono::Utc;
 
@@ -43,6 +44,7 @@ fn read_selected_promotion(config: &InstallPlanConfig) -> Result<MutationPromoti
         )
     })?;
     let mut selected = None;
+    let mut matched = 0usize;
     for (index, line) in contents.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
@@ -55,10 +57,28 @@ fn read_selected_promotion(config: &InstallPlanConfig) -> Result<MutationPromoti
             )
         })?;
         if matches_selector(config, &record) {
+            matched += 1;
             selected = Some(record);
         }
     }
+    if matched > 1 {
+        bail!(
+            "multiple promotion records matched selector {}; rerun with a unique --promotion-id",
+            selector_summary(config)
+        );
+    }
     selected.with_context(|| "no matching promotion evidence found".to_owned())
+}
+
+fn selector_summary(config: &InstallPlanConfig) -> String {
+    match (&config.promotion_id, &config.mutation_id) {
+        (Some(promotion_id), Some(mutation_id)) => {
+            format!("promotion_id={promotion_id}, mutation_id={mutation_id}")
+        }
+        (Some(promotion_id), None) => format!("promotion_id={promotion_id}"),
+        (None, Some(mutation_id)) => format!("mutation_id={mutation_id}"),
+        (None, None) => "<none>".to_owned(),
+    }
 }
 
 fn matches_selector(config: &InstallPlanConfig, record: &MutationPromotionRecord) -> bool {
@@ -175,6 +195,7 @@ fn generation_record(
 
     GenerationRecord {
         timestamp: Utc::now().to_rfc3339(),
+        lineage_status: LineageStatus::Planned,
         generation: config.resulting_generation.clone(),
         mutation_id: promotion.mutation_id.clone(),
         goal: promotion.goal.clone(),
@@ -271,6 +292,7 @@ mod tests {
         let record = install_plan_and_record(config(&root)).expect("install plan should be built");
 
         assert_eq!(record.activation_result, "planned-install");
+        assert_eq!(record.lineage_status, LineageStatus::Planned);
         assert_eq!(record.mutation_id, "mut-test");
         assert_eq!(record.parent_generation.as_deref(), Some("gen-parent"));
         assert_eq!(record.generation, "gen-child");
@@ -293,8 +315,86 @@ mod tests {
         let journal = fs::read_to_string(root.join("generations.jsonl"))
             .expect("generation journal should exist");
         assert!(journal.contains(&record.generation));
+        assert!(journal.contains("planned"));
         assert!(journal.contains("pro-test"));
         assert!(journal.contains("planned-install"));
+    }
+
+    #[test]
+    fn mutation_id_selector_rejects_multiple_matching_promotions() {
+        let root = temp_root("install-plan-ambiguous-mutation");
+        let promotion_journal = root.join("promotions.jsonl");
+        let mut first = promotion(PromotionStatus::Promoted);
+        first.promotion_id = "pro-first".to_owned();
+        let mut second = promotion(PromotionStatus::Promoted);
+        second.promotion_id = "pro-second".to_owned();
+        fs::write(
+            &promotion_journal,
+            format!(
+                "{}\n{}\n",
+                serde_json::to_string(&first).expect("first promotion should serialize"),
+                serde_json::to_string(&second).expect("second promotion should serialize")
+            ),
+        )
+        .expect("promotion journal should be written");
+        let mut config = config(&root);
+        config.promotion_id = None;
+        config.mutation_id = Some("mut-test".to_owned());
+
+        let error = install_plan_and_record(config).expect_err("ambiguous mutation selector fails");
+
+        assert!(error.to_string().contains("multiple promotion records"));
+    }
+
+    #[test]
+    fn promotion_id_selector_allows_matching_promotion_among_multiple_records() {
+        let root = temp_root("install-plan-promotion-id-selector");
+        let promotion_journal = root.join("promotions.jsonl");
+        let mut first = promotion(PromotionStatus::Promoted);
+        first.promotion_id = "pro-first".to_owned();
+        let mut second = promotion(PromotionStatus::Promoted);
+        second.promotion_id = "pro-second".to_owned();
+        fs::write(
+            &promotion_journal,
+            format!(
+                "{}\n{}\n",
+                serde_json::to_string(&first).expect("first promotion should serialize"),
+                serde_json::to_string(&second).expect("second promotion should serialize")
+            ),
+        )
+        .expect("promotion journal should be written");
+        let mut config = config(&root);
+        config.promotion_id = Some("pro-first".to_owned());
+        config.mutation_id = Some("mut-test".to_owned());
+
+        let record = install_plan_and_record(config).expect("promotion id disambiguates");
+
+        assert_eq!(record.promotion_id.as_deref(), Some("pro-first"));
+    }
+
+    #[test]
+    fn promotion_id_selector_rejects_duplicate_matching_promotions() {
+        let root = temp_root("install-plan-duplicate-promotion-id");
+        let promotion_journal = root.join("promotions.jsonl");
+        let mut first = promotion(PromotionStatus::Promoted);
+        first.promotion_id = "pro-duplicate".to_owned();
+        let mut second = promotion(PromotionStatus::Promoted);
+        second.promotion_id = "pro-duplicate".to_owned();
+        fs::write(
+            &promotion_journal,
+            format!(
+                "{}\n{}\n",
+                serde_json::to_string(&first).expect("first promotion should serialize"),
+                serde_json::to_string(&second).expect("second promotion should serialize")
+            ),
+        )
+        .expect("promotion journal should be written");
+        let mut config = config(&root);
+        config.promotion_id = Some("pro-duplicate".to_owned());
+
+        let error = install_plan_and_record(config).expect_err("duplicate promotion id fails");
+
+        assert!(error.to_string().contains("multiple promotion records"));
     }
 
     #[test]

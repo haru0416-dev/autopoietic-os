@@ -295,9 +295,23 @@ pub struct MutationPromotionRecord {
     pub metadata: BTreeMap<String, String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LineageStatus {
+    Planned,
+    Installed,
+    Failed,
+}
+
+fn default_lineage_status() -> LineageStatus {
+    LineageStatus::Installed
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GenerationRecord {
     pub timestamp: String,
+    #[serde(default = "default_lineage_status")]
+    pub lineage_status: LineageStatus,
     pub generation: String,
     pub mutation_id: String,
     pub goal: String,
