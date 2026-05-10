@@ -86,7 +86,17 @@ fn validate_install_plan_input(
     if promotion.verification_id.is_none() {
         bail!("promoted P2 evidence is missing verification_id");
     }
+    if promotion.verified_root_fingerprint.is_none() {
+        bail!("promoted P2 evidence is missing verified_root_fingerprint");
+    }
     if promotion.checks.is_empty() {
+        bail!("promoted P2 evidence is missing VM check evidence");
+    }
+    if !promotion
+        .checks
+        .iter()
+        .any(|check| check.name.starts_with("vm-check:"))
+    {
         bail!("promoted P2 evidence is missing VM check evidence");
     }
     if promotion
@@ -99,10 +109,7 @@ fn validate_install_plan_input(
     if !config.target_root.is_absolute() {
         bail!("install plan target root must be an absolute path");
     }
-    if config.record
-        && config.generation_journal_path.is_absolute()
-        && normalized_starts_with(&config.generation_journal_path, &config.target_root)
-    {
+    if config.record && generation_journal_is_inside_target_root(config)? {
         bail!("generation journal for --record must not be inside the install target root");
     }
     if config.parent_generation.trim().is_empty() {
@@ -112,6 +119,22 @@ fn validate_install_plan_input(
         bail!("install plan requires a non-empty resulting generation");
     }
     Ok(())
+}
+
+fn generation_journal_is_inside_target_root(config: &InstallPlanConfig) -> Result<bool> {
+    let journal_path = absolute_path(&config.generation_journal_path)
+        .context("failed to resolve generation journal path")?;
+    Ok(normalized_starts_with(&journal_path, &config.target_root))
+}
+
+fn absolute_path(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()
+            .context("failed to read current directory")?
+            .join(path))
+    }
 }
 
 fn normalized_starts_with(path: &Path, prefix: &Path) -> bool {
@@ -299,6 +322,33 @@ mod tests {
     }
 
     #[test]
+    fn promoted_evidence_without_verified_root_fingerprint_is_rejected() {
+        let root = temp_root("install-plan-no-verified-root");
+        let promotion_journal = root.join("promotions.jsonl");
+        let mut record = promotion(PromotionStatus::Promoted);
+        record.verified_root_fingerprint = None;
+        write_promotion(&promotion_journal, &record);
+
+        let error =
+            install_plan_and_record(config(&root)).expect_err("missing root evidence fails");
+
+        assert!(error.to_string().contains("verified_root_fingerprint"));
+    }
+
+    #[test]
+    fn promoted_evidence_without_vm_check_is_rejected() {
+        let root = temp_root("install-plan-no-vm-check");
+        let promotion_journal = root.join("promotions.jsonl");
+        let mut record = promotion(PromotionStatus::Promoted);
+        record.checks[0].name = "non-vm-check".to_owned();
+        write_promotion(&promotion_journal, &record);
+
+        let error = install_plan_and_record(config(&root)).expect_err("missing vm check fails");
+
+        assert!(error.to_string().contains("missing VM check evidence"));
+    }
+
+    #[test]
     fn relative_target_root_is_rejected() {
         let root = temp_root("install-plan-relative-root");
         let promotion_journal = root.join("promotions.jsonl");
@@ -321,6 +371,26 @@ mod tests {
         config.generation_journal_path = config.target_root.join("memory/generations.jsonl");
 
         let error = install_plan_and_record(config).expect_err("target-root journal fails");
+
+        assert!(error.to_string().contains("must not be inside"));
+    }
+
+    #[test]
+    fn relative_record_journal_inside_target_root_is_rejected() {
+        let root = temp_root("install-plan-relative-journal-in-target");
+        let promotion_journal = root.join("promotions.jsonl");
+        write_promotion(&promotion_journal, &promotion(PromotionStatus::Promoted));
+        let relative_target = format!("autopoietic-target-{}", Uuid::new_v4().simple());
+        let mut config = config(&root);
+        config.record = true;
+        config.target_root = std::env::current_dir()
+            .expect("current dir should exist")
+            .join(&relative_target);
+        config.generation_journal_path =
+            PathBuf::from(relative_target).join("memory/generations.jsonl");
+
+        let error =
+            install_plan_and_record(config).expect_err("relative target-root journal fails");
 
         assert!(error.to_string().contains("must not be inside"));
     }
