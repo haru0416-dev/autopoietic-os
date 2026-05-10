@@ -62,7 +62,7 @@ Post-P0 phases should be proposed only after the previous phase has executable v
 - P3: install workflow and generation lineage linking;
 - P4: organ registry and decay review.
 
-P1, P2, and P3 now have ADR boundaries. P3 is the next planned capability after P2 verification evidence is reviewed.
+P1, P2, and P3 now have ADR boundaries. P3 is the next planned capability after P2 verification evidence is reviewed. Cross-phase evidence handoff is fixed by [ADR 0016](adr/0016-evidence-bundle-and-canonical-comparison-boundary.md); its initial shared vocabulary is represented by `EvidenceBundle` and `memory/evidence-bundle.schema.json`.
 
 ## P1: offline mutation verifier
 

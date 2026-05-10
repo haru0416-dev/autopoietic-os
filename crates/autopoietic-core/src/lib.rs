@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Identity {
@@ -398,6 +399,137 @@ pub struct InstallVerifyOutput {
     pub promotion_id: String,
     pub all_matched: bool,
     pub files: Vec<InstallSeedFileVerification>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ComparisonStatus {
+    Matched,
+    Mismatched,
+    Missing,
+    Incomparable,
+    Stale,
+    Ambiguous,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum DataQuality {
+    Raw,
+    Observed,
+    Canonicalized,
+    Verified,
+    Derived,
+    Stale,
+    Ambiguous,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DigestRef {
+    pub algorithm: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProvenanceRef {
+    pub kind: String,
+    pub source: String,
+    pub digest: DigestRef,
+    pub schema_version: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EvidenceSubject {
+    pub mutation_id: String,
+    pub proposal_fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_fingerprint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EvidenceInputRef {
+    pub input_id: String,
+    pub kind: String,
+    pub provenance: ProvenanceRef,
+    pub quality: DataQuality,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EvidenceObservation {
+    pub observation_id: String,
+    pub kind: String,
+    pub summary: String,
+    pub quality: DataQuality,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_at: Option<String>,
+    pub raw_ref: ProvenanceRef,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CanonicalFact {
+    pub fact_id: String,
+    pub kind: String,
+    pub value: Value,
+    pub quality: DataQuality,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub derived_from: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ComparisonReport {
+    pub comparison_id: String,
+    pub left_ref: String,
+    pub right_ref: String,
+    pub status: ComparisonStatus,
+    pub reason: String,
+    pub quality: DataQuality,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EvidenceClaim {
+    pub claim_id: String,
+    pub claim: String,
+    pub quality: DataQuality,
+    pub backing: Vec<String>,
+    pub limits: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvidenceBundle {
+    pub schema_version: String,
+    pub bundle_id: String,
+    pub phase: String,
+    pub subject: EvidenceSubject,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<EvidenceInputRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub observations: Vec<EvidenceObservation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub canonical_facts: Vec<CanonicalFact>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comparisons: Vec<ComparisonReport>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub claims: Vec<EvidenceClaim>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

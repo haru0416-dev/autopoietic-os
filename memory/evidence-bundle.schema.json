@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopoietic-os.local/schemas/evidence-bundle.schema.json",
+  "type": "object",
+  "required": ["schema_version", "bundle_id", "phase", "subject"],
+  "properties": {
+    "schema_version": { "const": "0.1.0" },
+    "bundle_id": { "type": "string" },
+    "phase": { "type": "string" },
+    "subject": { "$ref": "#/$defs/evidence_subject" },
+    "inputs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidence_input_ref" }
+    },
+    "observations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidence_observation" }
+    },
+    "canonical_facts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/canonical_fact" }
+    },
+    "comparisons": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/comparison_report" }
+    },
+    "claims": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidence_claim" }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "comparison_status": {
+      "enum": ["matched", "mismatched", "missing", "incomparable", "stale", "ambiguous", "error"]
+    },
+    "data_quality": {
+      "enum": ["raw", "observed", "canonicalized", "verified", "derived", "stale", "ambiguous", "unknown"]
+    },
+    "digest_ref": {
+      "type": "object",
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "value": { "type": "string" }
+      }
+    },
+    "provenance_ref": {
+      "type": "object",
+      "required": ["kind", "source", "digest", "schema_version"],
+      "properties": {
+        "kind": { "type": "string" },
+        "source": { "type": "string" },
+        "digest": { "$ref": "#/$defs/digest_ref" },
+        "schema_version": { "type": "string" },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "evidence_subject": {
+      "type": "object",
+      "required": ["mutation_id", "proposal_fingerprint"],
+      "anyOf": [
+        { "required": ["root_fingerprint"] },
+        { "required": ["generation_id"] }
+      ],
+      "properties": {
+        "mutation_id": { "type": "string" },
+        "proposal_fingerprint": { "type": "string" },
+        "root_fingerprint": { "type": "string" },
+        "generation_id": { "type": "string" },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "evidence_input_ref": {
+      "type": "object",
+      "required": ["input_id", "kind", "provenance", "quality"],
+      "properties": {
+        "input_id": { "type": "string" },
+        "kind": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance_ref" },
+        "quality": { "$ref": "#/$defs/data_quality" },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "evidence_observation": {
+      "type": "object",
+      "required": ["observation_id", "kind", "summary", "quality", "raw_ref"],
+      "properties": {
+        "observation_id": { "type": "string" },
+        "kind": { "type": "string" },
+        "summary": { "type": "string" },
+        "quality": { "$ref": "#/$defs/data_quality" },
+        "observed_at": { "type": "string", "format": "date-time" },
+        "raw_ref": { "$ref": "#/$defs/provenance_ref" },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "canonical_fact": {
+      "type": "object",
+      "required": ["fact_id", "kind", "value", "quality"],
+      "properties": {
+        "fact_id": { "type": "string" },
+        "kind": { "type": "string" },
+        "value": true,
+        "quality": { "$ref": "#/$defs/data_quality" },
+        "derived_from": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "comparison_report": {
+      "type": "object",
+      "required": ["comparison_id", "left_ref", "right_ref", "status", "reason", "quality"],
+      "properties": {
+        "comparison_id": { "type": "string" },
+        "left_ref": { "type": "string" },
+        "right_ref": { "type": "string" },
+        "status": { "$ref": "#/$defs/comparison_status" },
+        "reason": { "type": "string" },
+        "quality": { "$ref": "#/$defs/data_quality" },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "evidence_claim": {
+      "type": "object",
+      "required": ["claim_id", "claim", "quality", "backing", "limits"],
+      "properties": {
+        "claim_id": { "type": "string" },
+        "claim": { "type": "string" },
+        "quality": { "$ref": "#/$defs/data_quality" },
+        "backing": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "limits": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}
