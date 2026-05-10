@@ -39,15 +39,16 @@ Optional fields:
 1. Parse the proposal JSON.
 2. Read exactly one patch source: inline `patch` or proposal-relative `patch_path`.
 3. Validate the proposal boundary: schema version, relative changed paths, and patch paths matching `changed_paths`.
-4. Copy the root to a temporary worktree, skipping `.git`, `target`, `result*` outputs, and JSONL ledgers.
+4. Copy the root to a temporary worktree, skipping `.git`, `target`, `result*` outputs, JSONL ledgers, and optional `memory/evidence/` sidecars.
 5. Apply the unified diff inside the temporary worktree with the built-in patch applier.
 6. Run `nix flake check --no-write-lock-file path:<temporary-worktree>`.
 7. Run proposal `expected_checks` inside the temporary worktree.
 8. Append a verification result to `memory/mutation-results.jsonl`, or to `--journal <path>` if provided.
+9. If `--evidence-bundle <path>` is supplied, attempt to write a derived `EvidenceBundle` JSON file for the verification record.
 
-The CLI exits successfully only when the proposal is `verified`. Rejected and errored proposals are still journaled before the CLI returns a non-zero exit.
+The CLI exits successfully only when the proposal is `verified`. Rejected and errored proposals are still journaled before the CLI returns a non-zero exit. Evidence bundle output is optional and does not replace or gate the JSONL verification journal; invalid or unwritable bundle output is skipped with a warning after preserving the primary record.
 
-Verification records include first-class `proposal_fingerprint` and `root_fingerprint` fields. Both use `sha256:<hex>` when the evidence can be computed. The root fingerprint covers the copied genome content, excluding proposal inputs, build outputs, `.git`, and JSONL ledgers. P2 promotion uses the proposal fingerprint to reject proposal content that changed after P1 verification, and uses the root fingerprint to reject promotion from a different base genome.
+Verification records include first-class `proposal_fingerprint` and `root_fingerprint` fields. Both use `sha256:<hex>` when the evidence can be computed. The root fingerprint covers the copied genome content, excluding proposal inputs, build outputs, `.git`, JSONL ledgers, and optional `memory/evidence/` sidecars. P2 promotion uses the proposal fingerprint to reject proposal content that changed after P1 verification, and uses the root fingerprint to reject promotion from a different base genome.
 
 ## Side-effect boundary
 

@@ -28,8 +28,8 @@ The current repository state is the **initial P3 install-plan and generation lin
 nix develop
 os-introspect --root . --output memory/self-state.json
 mutation-journal append --goal "bootstrap self-observation" --status accepted --phase scaffold
-mutation-runner verify --proposal path/to/proposal.json
-mutation-runner promote --proposal path/to/proposal.json --parent-genome git:<revision>
+mutation-runner verify --proposal path/to/proposal.json --evidence-bundle memory/evidence/p1.json
+mutation-runner promote --proposal path/to/proposal.json --parent-genome git:<revision> --evidence-bundle memory/evidence/p2.json
 mutation-runner install-plan --mutation-id mut-example --target-root /mnt/autopoietic --parent-generation gen-parent --resulting-generation gen-child
 mutation-runner install-verify --plan path/to/install-plan.json
 ```

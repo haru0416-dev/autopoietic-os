@@ -43,6 +43,8 @@ struct VerifyArgs {
     work_dir: Option<PathBuf>,
     #[arg(long, default_value_t = false)]
     keep_worktree: bool,
+    #[arg(long)]
+    evidence_bundle: Option<PathBuf>,
 }
 
 impl From<VerifyArgs> for VerifyConfig {
@@ -54,6 +56,7 @@ impl From<VerifyArgs> for VerifyConfig {
             work_dir: value.work_dir,
             keep_worktree: value.keep_worktree,
             skip_default_checks: false,
+            evidence_bundle_path: value.evidence_bundle,
         }
     }
 }
@@ -82,6 +85,8 @@ struct PromoteArgs {
     parent_genome: String,
     #[arg(long = "changed-organ")]
     changed_organs: Vec<String>,
+    #[arg(long)]
+    evidence_bundle: Option<PathBuf>,
 }
 
 impl From<PromoteArgs> for PromoteConfig {
@@ -100,6 +105,7 @@ impl From<PromoteArgs> for PromoteConfig {
             changed_organs: value.changed_organs,
             extra_checks: Vec::new(),
             skip_default_checks: false,
+            evidence_bundle_path: value.evidence_bundle,
         }
     }
 }

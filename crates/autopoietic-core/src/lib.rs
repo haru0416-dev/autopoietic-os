@@ -532,6 +532,269 @@ pub struct EvidenceBundle {
     pub metadata: BTreeMap<String, String>,
 }
 
+impl MutationVerificationRecord {
+    pub fn to_evidence_bundle(&self, raw_ref: ProvenanceRef) -> EvidenceBundle {
+        let record_ref = format!("observation:{}:record", self.verification_id);
+        let status_fact_ref = format!("fact:{}:status", self.verification_id);
+        EvidenceBundle {
+            schema_version: "0.1.0".to_owned(),
+            bundle_id: format!("evidence:{}", self.verification_id),
+            phase: self.phase.clone(),
+            subject: EvidenceSubject {
+                mutation_id: self.mutation_id.clone(),
+                proposal_fingerprint: self.proposal_fingerprint.clone(),
+                root_fingerprint: Some(self.root_fingerprint.clone()),
+                generation_id: None,
+                metadata: BTreeMap::new(),
+            },
+            inputs: vec![evidence_input(
+                format!("input:{}:verification-record", self.verification_id),
+                "mutation-verification-record",
+                raw_ref.clone(),
+            )],
+            observations: vec![EvidenceObservation {
+                observation_id: record_ref.clone(),
+                kind: "mutation-verification-record".to_owned(),
+                summary: self.reason.clone(),
+                quality: DataQuality::Observed,
+                observed_at: Some(self.timestamp.clone()),
+                raw_ref,
+                metadata: BTreeMap::new(),
+            }],
+            canonical_facts: verification_canonical_facts(self),
+            comparisons: Vec::new(),
+            claims: vec![EvidenceClaim {
+                claim_id: format!("claim:{}:status", self.verification_id),
+                claim: verification_claim(self.status).to_owned(),
+                quality: DataQuality::Derived,
+                backing: vec![record_ref, status_fact_ref],
+                limits: vec![
+                    "P1 does not boot a VM".to_owned(),
+                    "P1 does not install, activate, or write to the live system".to_owned(),
+                    "P1 verified is not P2 promoted and not generation accepted".to_owned(),
+                ],
+                metadata: BTreeMap::new(),
+            }],
+            metadata: BTreeMap::new(),
+        }
+    }
+}
+
+impl MutationPromotionRecord {
+    pub fn to_evidence_bundle(&self, raw_ref: ProvenanceRef) -> EvidenceBundle {
+        let record_ref = format!("observation:{}:record", self.promotion_id);
+        let status_fact_ref = format!("fact:{}:status", self.promotion_id);
+        let comparisons = promotion_comparisons(self);
+        let mut backing = vec![record_ref.clone(), status_fact_ref];
+        backing.extend(
+            comparisons
+                .iter()
+                .map(|comparison| comparison.comparison_id.clone()),
+        );
+        EvidenceBundle {
+            schema_version: "0.1.0".to_owned(),
+            bundle_id: format!("evidence:{}", self.promotion_id),
+            phase: self.phase.clone(),
+            subject: EvidenceSubject {
+                mutation_id: self.mutation_id.clone(),
+                proposal_fingerprint: self.proposal_fingerprint.clone(),
+                root_fingerprint: Some(self.promotion_root_fingerprint.clone()),
+                generation_id: None,
+                metadata: BTreeMap::new(),
+            },
+            inputs: vec![evidence_input(
+                format!("input:{}:promotion-record", self.promotion_id),
+                "mutation-promotion-record",
+                raw_ref.clone(),
+            )],
+            observations: vec![EvidenceObservation {
+                observation_id: record_ref,
+                kind: "mutation-promotion-record".to_owned(),
+                summary: self.reason.clone(),
+                quality: DataQuality::Observed,
+                observed_at: Some(self.timestamp.clone()),
+                raw_ref,
+                metadata: BTreeMap::new(),
+            }],
+            canonical_facts: promotion_canonical_facts(self),
+            comparisons,
+            claims: vec![EvidenceClaim {
+                claim_id: format!("claim:{}:status", self.promotion_id),
+                claim: promotion_claim(self.status).to_owned(),
+                quality: DataQuality::Derived,
+                backing,
+                limits: vec![
+                    "P2 does not accept the mutation into generation lineage".to_owned(),
+                    "P2 does not write installed memory".to_owned(),
+                    "P2 does not run live nixos-rebuild switch".to_owned(),
+                ],
+                metadata: BTreeMap::new(),
+            }],
+            metadata: BTreeMap::new(),
+        }
+    }
+}
+
+fn evidence_input(input_id: String, kind: &str, provenance: ProvenanceRef) -> EvidenceInputRef {
+    EvidenceInputRef {
+        input_id,
+        kind: kind.to_owned(),
+        provenance,
+        quality: DataQuality::Raw,
+        metadata: BTreeMap::new(),
+    }
+}
+
+fn verification_canonical_facts(record: &MutationVerificationRecord) -> Vec<CanonicalFact> {
+    let prefix = &record.verification_id;
+    vec![
+        canonical_fact(prefix, "mutation-id", record.mutation_id.clone(), &[]),
+        canonical_fact(
+            prefix,
+            "proposal-fingerprint",
+            record.proposal_fingerprint.clone(),
+            &[],
+        ),
+        canonical_fact(
+            prefix,
+            "root-fingerprint",
+            record.root_fingerprint.clone(),
+            &[],
+        ),
+        canonical_fact(prefix, "status", record.status, &[]),
+        canonical_fact(prefix, "changed-paths", record.changed_paths.clone(), &[]),
+        canonical_fact(
+            prefix,
+            "check-statuses",
+            check_statuses(&record.checks),
+            &[],
+        ),
+    ]
+}
+
+fn promotion_canonical_facts(record: &MutationPromotionRecord) -> Vec<CanonicalFact> {
+    let prefix = &record.promotion_id;
+    vec![
+        canonical_fact(prefix, "mutation-id", record.mutation_id.clone(), &[]),
+        canonical_fact(
+            prefix,
+            "proposal-fingerprint",
+            record.proposal_fingerprint.clone(),
+            &[],
+        ),
+        canonical_fact(
+            prefix,
+            "promotion-root-fingerprint",
+            record.promotion_root_fingerprint.clone(),
+            &[],
+        ),
+        canonical_fact(
+            prefix,
+            "verified-root-fingerprint",
+            record.verified_root_fingerprint.clone(),
+            &[],
+        ),
+        canonical_fact(prefix, "status", record.status, &[]),
+        canonical_fact(prefix, "changed-paths", record.changed_paths.clone(), &[]),
+        canonical_fact(
+            prefix,
+            "check-statuses",
+            check_statuses(&record.checks),
+            &[],
+        ),
+    ]
+}
+
+fn canonical_fact(
+    prefix: &str,
+    kind: &str,
+    value: impl Serialize,
+    derived_from: &[String],
+) -> CanonicalFact {
+    CanonicalFact {
+        fact_id: format!("fact:{prefix}:{kind}"),
+        kind: kind.to_owned(),
+        value: serde_json::to_value(value)
+            .expect("serializing core evidence fact value should not fail"),
+        quality: DataQuality::Canonicalized,
+        derived_from: derived_from.to_vec(),
+        metadata: BTreeMap::new(),
+    }
+}
+
+fn check_statuses(checks: &[VerificationCheckResult]) -> BTreeMap<String, VerificationCheckStatus> {
+    checks
+        .iter()
+        .map(|check| (check.name.clone(), check.status))
+        .collect()
+}
+
+fn promotion_comparisons(record: &MutationPromotionRecord) -> Vec<ComparisonReport> {
+    let (status, reason) = compare_root_fingerprints(
+        record.verified_root_fingerprint.as_deref(),
+        &record.promotion_root_fingerprint,
+    );
+    vec![ComparisonReport {
+        comparison_id: format!(
+            "comparison:{}:verified-root-vs-promotion-root",
+            record.promotion_id
+        ),
+        left_ref: format!("fact:{}:verified-root-fingerprint", record.promotion_id),
+        right_ref: format!("fact:{}:promotion-root-fingerprint", record.promotion_id),
+        status,
+        reason,
+        quality: DataQuality::Verified,
+        metadata: BTreeMap::new(),
+    }]
+}
+
+fn compare_root_fingerprints(
+    verified_root_fingerprint: Option<&str>,
+    promotion_root_fingerprint: &str,
+) -> (ComparisonStatus, String) {
+    let Some(verified_root_fingerprint) = verified_root_fingerprint else {
+        return (
+            ComparisonStatus::Missing,
+            "missing P1 verified root fingerprint".to_owned(),
+        );
+    };
+    if verified_root_fingerprint.starts_with("unavailable:")
+        || promotion_root_fingerprint.starts_with("unavailable:")
+    {
+        return (
+            ComparisonStatus::Incomparable,
+            "root fingerprint comparison is unavailable for this promotion record".to_owned(),
+        );
+    }
+    if verified_root_fingerprint == promotion_root_fingerprint {
+        (
+            ComparisonStatus::Matched,
+            "P1 verified root fingerprint matches P2 promotion root fingerprint".to_owned(),
+        )
+    } else {
+        (
+            ComparisonStatus::Stale,
+            "P1 verified root fingerprint differs from P2 promotion root fingerprint".to_owned(),
+        )
+    }
+}
+
+fn verification_claim(status: VerificationStatus) -> &'static str {
+    match status {
+        VerificationStatus::Verified => "mutation verified",
+        VerificationStatus::Rejected => "mutation rejected",
+        VerificationStatus::Error => "verification errored",
+    }
+}
+
+fn promotion_claim(status: PromotionStatus) -> &'static str {
+    match status {
+        PromotionStatus::Promoted => "mutation promoted",
+        PromotionStatus::Rejected => "promotion rejected",
+        PromotionStatus::Error => "promotion errored",
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum OrganType {
@@ -568,4 +831,157 @@ pub struct OrganRecord {
     pub failure_count: Option<u64>,
     pub related_goals: Vec<String>,
     pub decay_status: Option<DecayStatus>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn provenance(source: &str) -> ProvenanceRef {
+        ProvenanceRef {
+            kind: "jsonl-record".to_owned(),
+            source: source.to_owned(),
+            digest: DigestRef {
+                algorithm: "sha256".to_owned(),
+                value: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_owned(),
+            },
+            schema_version: "0.1.0".to_owned(),
+            metadata: BTreeMap::new(),
+        }
+    }
+
+    fn check(status: VerificationCheckStatus) -> VerificationCheckResult {
+        VerificationCheckResult {
+            name: "nix-flake-check".to_owned(),
+            command: "nix".to_owned(),
+            args: vec!["flake".to_owned(), "check".to_owned()],
+            status,
+            exit_code: Some(0),
+            stdout: String::new(),
+            stderr: String::new(),
+        }
+    }
+
+    fn verification_record(status: VerificationStatus) -> MutationVerificationRecord {
+        MutationVerificationRecord {
+            verification_id: "ver-test".to_owned(),
+            timestamp: "2026-05-10T00:00:00Z".to_owned(),
+            mutation_id: "mut-test".to_owned(),
+            goal: "test evidence mapping".to_owned(),
+            phase: "P1".to_owned(),
+            status,
+            reason: "test verification".to_owned(),
+            proposal_fingerprint:
+                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_owned(),
+            root_fingerprint:
+                "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_owned(),
+            changed_paths: vec!["README.md".to_owned()],
+            checks: vec![check(VerificationCheckStatus::Passed)],
+            side_effects: Vec::new(),
+            metadata: BTreeMap::new(),
+        }
+    }
+
+    fn promotion_record(status: PromotionStatus) -> MutationPromotionRecord {
+        MutationPromotionRecord {
+            promotion_id: "pro-test".to_owned(),
+            timestamp: "2026-05-10T00:00:00Z".to_owned(),
+            mutation_id: "mut-test".to_owned(),
+            goal: "test evidence mapping".to_owned(),
+            phase: "P2".to_owned(),
+            status,
+            reason: "test promotion".to_owned(),
+            verification_id: Some("ver-test".to_owned()),
+            proposal_fingerprint:
+                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_owned(),
+            verified_root_fingerprint: Some(
+                "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                    .to_owned(),
+            ),
+            promotion_root_fingerprint:
+                "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_owned(),
+            parent_genome: "git:parent".to_owned(),
+            target_configuration: "iso".to_owned(),
+            changed_paths: vec!["README.md".to_owned()],
+            changed_organs: vec!["docs".to_owned()],
+            checks: vec![check(VerificationCheckStatus::Passed)],
+            metadata: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn verification_record_maps_to_backed_evidence_bundle() {
+        let bundle = verification_record(VerificationStatus::Verified)
+            .to_evidence_bundle(provenance("memory/mutation-results.jsonl:1"));
+
+        assert_eq!(bundle.schema_version, "0.1.0");
+        assert_eq!(bundle.subject.mutation_id, "mut-test");
+        assert_eq!(bundle.subject.generation_id, None);
+        assert_eq!(bundle.claims[0].claim, "mutation verified");
+        assert!(
+            bundle.claims[0]
+                .backing
+                .contains(&"observation:ver-test:record".to_owned())
+        );
+        assert!(
+            bundle
+                .canonical_facts
+                .iter()
+                .any(|fact| fact.fact_id == "fact:ver-test:root-fingerprint")
+        );
+    }
+
+    #[test]
+    fn promotion_record_maps_root_fingerprint_comparison() {
+        let bundle = promotion_record(PromotionStatus::Promoted)
+            .to_evidence_bundle(provenance("memory/mutation-promotions.jsonl:1"));
+
+        assert_eq!(
+            bundle.subject.root_fingerprint.as_deref(),
+            Some("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+        );
+        assert_eq!(bundle.claims[0].claim, "mutation promoted");
+        assert_eq!(bundle.comparisons[0].status, ComparisonStatus::Matched);
+        assert!(
+            bundle.claims[0]
+                .backing
+                .contains(&"comparison:pro-test:verified-root-vs-promotion-root".to_owned())
+        );
+    }
+
+    #[test]
+    fn promotion_record_marks_root_fingerprint_drift_as_stale() {
+        let mut record = promotion_record(PromotionStatus::Rejected);
+        record.promotion_root_fingerprint =
+            "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_owned();
+
+        let bundle = record.to_evidence_bundle(provenance("memory/mutation-promotions.jsonl:2"));
+
+        assert_eq!(bundle.comparisons[0].status, ComparisonStatus::Stale);
+        assert_eq!(bundle.claims[0].claim, "promotion rejected");
+    }
+
+    #[test]
+    fn promotion_record_marks_missing_verified_root_as_missing() {
+        let mut record = promotion_record(PromotionStatus::Rejected);
+        record.verified_root_fingerprint = None;
+        record.promotion_root_fingerprint = "unavailable:no-verification-evidence".to_owned();
+
+        let bundle = record.to_evidence_bundle(provenance("memory/mutation-promotions.jsonl:3"));
+
+        assert_eq!(bundle.comparisons[0].status, ComparisonStatus::Missing);
+        assert!(bundle.comparisons[0].reason.contains("missing P1"));
+    }
+
+    #[test]
+    fn promotion_record_marks_unavailable_root_as_incomparable() {
+        let mut record = promotion_record(PromotionStatus::Rejected);
+        record.promotion_root_fingerprint = "unavailable:not-verified".to_owned();
+
+        let bundle = record.to_evidence_bundle(provenance("memory/mutation-promotions.jsonl:4"));
+
+        assert_eq!(bundle.comparisons[0].status, ComparisonStatus::Incomparable);
+        assert!(bundle.comparisons[0].reason.contains("unavailable"));
+    }
 }

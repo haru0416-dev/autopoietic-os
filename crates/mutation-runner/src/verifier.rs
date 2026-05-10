@@ -4,10 +4,13 @@ use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output};
 
-use anyhow::{Context, Result};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+
+use anyhow::{Context, Result, bail};
 use autopoietic_core::{
-    MutationProposal, MutationVerificationRecord, ProposalCheck, VerificationCheckResult,
-    VerificationCheckStatus, VerificationStatus,
+    DigestRef, MutationProposal, MutationVerificationRecord, ProposalCheck, ProvenanceRef,
+    VerificationCheckResult, VerificationCheckStatus, VerificationStatus,
 };
 use chrono::Utc;
 use sha2::{Digest, Sha256};
@@ -21,6 +24,7 @@ pub(crate) struct VerifyConfig {
     pub(crate) work_dir: Option<PathBuf>,
     pub(crate) keep_worktree: bool,
     pub(crate) skip_default_checks: bool,
+    pub(crate) evidence_bundle_path: Option<PathBuf>,
 }
 
 pub(crate) struct Worktree {
@@ -37,9 +41,30 @@ impl Drop for Worktree {
 }
 
 pub(crate) fn verify_and_record(config: VerifyConfig) -> Result<MutationVerificationRecord> {
+    let evidence_bundle_path = optional_evidence_bundle_path(
+        "verification",
+        config.evidence_bundle_path.as_deref(),
+        &[&config.journal_path],
+    );
     let proposal = read_proposal(&config.proposal_path)?;
     let record = verify_proposal(&proposal, &config);
     append_jsonl(&config.journal_path, &record)?;
+    if let Some(path) = &evidence_bundle_path {
+        let write_result = evidence_provenance(
+            "mutation-verification-record",
+            format!(
+                "{}#{}",
+                config.journal_path.display(),
+                record.verification_id
+            ),
+            "0.1.0",
+            &record,
+        )
+        .and_then(|provenance| write_json(path, &record.to_evidence_bundle(provenance)));
+        if let Err(error) = write_result {
+            warn_evidence_bundle_failure("verification", error);
+        }
+    }
     Ok(record)
 }
 
@@ -384,11 +409,11 @@ fn collect_fingerprint_files(
     {
         let entry =
             entry.with_context(|| format!("failed to read entry in {}", current.display()))?;
+        let path = entry.path();
         let file_name = entry.file_name();
-        if should_skip(&file_name) {
+        if should_skip(&file_name) || is_memory_evidence_path(&path) {
             continue;
         }
-        let path = entry.path();
         let metadata = entry
             .metadata()
             .with_context(|| format!("failed to stat {}", path.display()))?;
@@ -404,7 +429,7 @@ fn collect_fingerprint_files(
                 .with_context(|| format!("failed to relativize {}", guarded.display()))?
                 .to_string_lossy()
                 .replace('\\', "/");
-            if is_volatile_ledger(&relative) {
+            if is_volatile_evidence(&relative) {
                 continue;
             }
             files.push((relative, guarded));
@@ -413,8 +438,8 @@ fn collect_fingerprint_files(
     Ok(())
 }
 
-fn is_volatile_ledger(relative: &str) -> bool {
-    relative.ends_with(".jsonl")
+fn is_volatile_evidence(relative: &str) -> bool {
+    relative.ends_with(".jsonl") || relative.starts_with("memory/evidence/")
 }
 
 fn to_hex(bytes: &[u8]) -> String {
@@ -726,11 +751,11 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
     {
         let entry =
             entry.with_context(|| format!("failed to read entry in {}", source.display()))?;
+        let source_path = entry.path();
         let file_name = entry.file_name();
-        if should_skip(&file_name) {
+        if should_skip(&file_name) || is_memory_evidence_path(&source_path) {
             continue;
         }
-        let source_path = entry.path();
         let destination_path = destination.join(&file_name);
         let metadata = entry
             .metadata()
@@ -757,6 +782,18 @@ fn should_skip(file_name: &OsStr) -> bool {
         || file_name
             .to_str()
             .is_some_and(|name| name.starts_with("result-") || name.ends_with(".jsonl"))
+}
+
+fn is_memory_evidence_path(path: &Path) -> bool {
+    let mut previous_was_memory = false;
+    for component in path.components() {
+        let name = component.as_os_str();
+        if previous_was_memory && name == OsStr::new("evidence") {
+            return true;
+        }
+        previous_was_memory = name == OsStr::new("memory");
+    }
+    false
 }
 
 fn is_allowed_check(check: &ProposalCheck, worktree: &Path) -> bool {
@@ -861,6 +898,169 @@ pub(crate) fn append_jsonl<T: serde::Serialize>(path: &Path, entry: &T) -> Resul
     Ok(())
 }
 
+pub(crate) fn write_json<T: serde::Serialize>(path: &Path, entry: &T) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create JSON output directory {}",
+                parent.display()
+            )
+        })?;
+    }
+    let bytes = serde_json::to_vec_pretty(entry).context("failed to serialize JSON output")?;
+    fs::write(path, bytes)
+        .with_context(|| format!("failed to write JSON output {}", path.display()))
+}
+
+pub(crate) fn validate_evidence_bundle_path(
+    evidence_bundle_path: Option<&Path>,
+    journal_path: &Path,
+) -> Result<Option<PathBuf>> {
+    let Some(evidence_bundle_path) = evidence_bundle_path else {
+        return Ok(None);
+    };
+    let evidence_bundle_path = normalized_absolute_path(evidence_bundle_path)?;
+    let journal_path = normalized_absolute_path(journal_path)?;
+    if path_has_symlink_component(&evidence_bundle_path)? {
+        bail!("evidence bundle path must not traverse symlinks");
+    }
+    if path_has_symlink_component(&journal_path)? {
+        bail!(
+            "primary JSONL journal path must not traverse symlinks when evidence bundle output is requested"
+        );
+    }
+    if evidence_bundle_path == journal_path {
+        bail!("evidence bundle path must not replace the primary JSONL journal");
+    }
+    if existing_paths_refer_to_same_file(&evidence_bundle_path, &journal_path)? {
+        bail!("evidence bundle path must not replace the primary JSONL journal");
+    }
+    Ok(Some(evidence_bundle_path))
+}
+
+pub(crate) fn optional_evidence_bundle_path(
+    context: &str,
+    evidence_bundle_path: Option<&Path>,
+    journal_paths: &[&Path],
+) -> Option<PathBuf> {
+    let mut resolved = evidence_bundle_path.map(Path::to_path_buf);
+    for journal_path in journal_paths {
+        match validate_evidence_bundle_path(resolved.as_deref(), journal_path) {
+            Ok(path) => resolved = path,
+            Err(error) => {
+                warn_evidence_bundle_failure(context, error);
+                return None;
+            }
+        }
+    }
+    resolved
+}
+
+fn warn_evidence_bundle_failure(context: &str, error: anyhow::Error) {
+    eprintln!("warning: skipped {context} EvidenceBundle output: {error:#}");
+}
+
+fn path_has_symlink_component(path: &Path) -> Result<bool> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .context("failed to read current directory")?
+            .join(path)
+    };
+    let mut current = PathBuf::new();
+    for component in absolute.components() {
+        current.push(component.as_os_str());
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => return Ok(true),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to inspect evidence bundle path {}",
+                        current.display()
+                    )
+                });
+            }
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(unix)]
+fn existing_paths_refer_to_same_file(left: &Path, right: &Path) -> Result<bool> {
+    let left_metadata = match fs::metadata(left) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to stat {}", left.display()));
+        }
+    };
+    let right_metadata = match fs::metadata(right) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to stat {}", right.display()));
+        }
+    };
+    Ok(left_metadata.dev() == right_metadata.dev() && left_metadata.ino() == right_metadata.ino())
+}
+
+#[cfg(not(unix))]
+fn existing_paths_refer_to_same_file(left: &Path, right: &Path) -> Result<bool> {
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => Ok(left == right),
+        _ => Ok(false),
+    }
+}
+
+fn normalized_absolute_path(path: &Path) -> Result<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .context("failed to read current directory")?
+            .join(path)
+    };
+    Ok(normalize_path_components(&absolute))
+}
+
+fn normalize_path_components(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
+pub(crate) fn evidence_provenance<T: serde::Serialize>(
+    kind: &str,
+    source: String,
+    schema_version: &str,
+    entry: &T,
+) -> Result<ProvenanceRef> {
+    let bytes = serde_json::to_vec(entry).context("failed to serialize evidence source")?;
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    Ok(ProvenanceRef {
+        kind: kind.to_owned(),
+        source,
+        digest: DigestRef {
+            algorithm: "sha256".to_owned(),
+            value: format!("sha256:{}", to_hex(&hasher.finalize())),
+        },
+        schema_version: schema_version.to_owned(),
+        metadata: std::collections::BTreeMap::new(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -912,6 +1112,7 @@ mod tests {
             work_dir: Some(temp_root("work")),
             keep_worktree: false,
             skip_default_checks: true,
+            evidence_bundle_path: None,
         }
     }
 
@@ -981,6 +1182,219 @@ mod tests {
     }
 
     #[test]
+    fn verification_can_write_evidence_bundle() {
+        let root = temp_root("verify-evidence-bundle");
+        write_file(&root.join("README.md"), "old\n");
+        let proposal_path = root.join("proposal.json");
+        let journal_path = root.join("results.jsonl");
+        let bundle_path = root.join("evidence/verification.json");
+        let proposal = base_proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        let mut config = config(&root, &proposal_path, &journal_path);
+        config.evidence_bundle_path = Some(bundle_path.clone());
+
+        let record = verify_and_record(config).expect("valid proposal should verify");
+
+        assert_eq!(record.status, VerificationStatus::Verified);
+        let bundle: autopoietic_core::EvidenceBundle = serde_json::from_slice(
+            &fs::read(bundle_path).expect("evidence bundle should be written"),
+        )
+        .expect("evidence bundle should parse");
+        assert_eq!(bundle.subject.mutation_id, "mut-test");
+        assert_eq!(bundle.claims[0].claim, "mutation verified");
+        assert_eq!(bundle.observations[0].raw_ref.digest.algorithm, "sha256");
+    }
+
+    #[test]
+    fn verification_skips_evidence_bundle_overwriting_journal_without_changing_gate() {
+        let root = temp_root("verify-evidence-overwrite");
+        write_file(&root.join("README.md"), "old\n");
+        let proposal_path = root.join("proposal.json");
+        let journal_path = root.join("results.jsonl");
+        let proposal = base_proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        let mut config = config(&root, &proposal_path, &journal_path);
+        config.evidence_bundle_path = Some(journal_path.clone());
+
+        let record = verify_and_record(config).expect("unsafe evidence path should not gate P1");
+
+        assert_eq!(record.status, VerificationStatus::Verified);
+        assert!(
+            fs::read_to_string(&journal_path)
+                .expect("primary journal should be written")
+                .contains("verified")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn verification_skips_symlinked_evidence_bundle_path_without_changing_gate() {
+        let root = temp_root("verify-evidence-symlink-overwrite");
+        write_file(&root.join("README.md"), "old\n");
+        let proposal_path = root.join("proposal.json");
+        let journal_path = root.join("results.jsonl");
+        write_file(&journal_path, "existing journal\n");
+        let bundle_path = root.join("bundle.json");
+        std::os::unix::fs::symlink(&journal_path, &bundle_path)
+            .expect("bundle path symlink should be created");
+        let proposal = base_proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        let mut config = config(&root, &proposal_path, &journal_path);
+        config.evidence_bundle_path = Some(bundle_path);
+
+        let record = verify_and_record(config).expect("symlinked bundle path should not gate P1");
+
+        assert_eq!(record.status, VerificationStatus::Verified);
+        let journal = fs::read_to_string(&journal_path).expect("journal should remain readable");
+        assert!(journal.starts_with("existing journal\n"));
+        assert!(journal.contains("verified"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn verification_skips_symlinked_journal_alias_without_corrupting_jsonl() {
+        let root = temp_root("verify-evidence-symlink-journal-alias");
+        fs::create_dir_all(root.join("memory")).expect("memory directory should be created");
+        std::os::unix::fs::symlink(root.join("memory"), root.join("link"))
+            .expect("journal path symlink should be created");
+        write_file(&root.join("README.md"), "old\n");
+        let proposal_path = root.join("proposal.json");
+        let journal_path = root.join("link/results.jsonl");
+        let bundle_path = root.join("memory/results.jsonl");
+        let proposal = base_proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        let mut config = config(&root, &proposal_path, &journal_path);
+        config.evidence_bundle_path = Some(bundle_path.clone());
+
+        let record = verify_and_record(config).expect("symlinked journal should not gate P1");
+
+        assert_eq!(record.status, VerificationStatus::Verified);
+        let journal = fs::read_to_string(&bundle_path).expect("journal target should be written");
+        let parsed: MutationVerificationRecord = serde_json::from_str(journal.trim())
+            .expect("aliased target should remain a JSONL verification record, not a bundle");
+        assert_eq!(parsed.status, VerificationStatus::Verified);
+    }
+
+    #[test]
+    fn verification_does_not_copy_memory_evidence_into_worktree() {
+        let root = temp_root("verify-evidence-not-copied");
+        write_file(&root.join("README.md"), "old\n");
+        write_file(
+            &root.join("memory/evidence/p1.json"),
+            "{\"volatile\":true}\n",
+        );
+        let proposal_path = root.join("proposal.json");
+        let journal_path = root.join("results.jsonl");
+        let mut proposal = base_proposal(&patch_one_file("README.md", "old", "new"));
+        proposal.expected_checks = vec![ProposalCheck {
+            name: "evidence-sidecar-absent".to_owned(),
+            command: "test".to_owned(),
+            args: vec![
+                "!".to_owned(),
+                "-e".to_owned(),
+                "memory/evidence/p1.json".to_owned(),
+            ],
+        }];
+        write_proposal(&proposal_path, &proposal);
+
+        let record = verify_and_record(config(&root, &proposal_path, &journal_path))
+            .expect("evidence sidecar should not affect P1 checks");
+
+        assert_eq!(record.status, VerificationStatus::Verified);
+        assert_eq!(record.checks[1].name, "evidence-sidecar-absent");
+        assert_eq!(record.checks[1].status, VerificationCheckStatus::Passed);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn verification_skips_normalized_symlinked_evidence_bundle_path_without_changing_gate() {
+        let root = temp_root("verify-evidence-normalized-symlink-overwrite");
+        write_file(&root.join("README.md"), "old\n");
+        let proposal_path = root.join("proposal.json");
+        let journal_path = root.join("results.jsonl");
+        write_file(&journal_path, "existing journal\n");
+        std::os::unix::fs::symlink(&journal_path, root.join("bundle.json"))
+            .expect("bundle path symlink should be created");
+        let proposal = base_proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        let mut config = config(&root, &proposal_path, &journal_path);
+        config.evidence_bundle_path = Some(root.join("missing/../bundle.json"));
+
+        let record = verify_and_record(config).expect("normalized symlink should not gate P1");
+
+        assert_eq!(record.status, VerificationStatus::Verified);
+        let journal = fs::read_to_string(&journal_path).expect("journal should remain readable");
+        assert!(journal.starts_with("existing journal\n"));
+        assert!(journal.contains("verified"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn verification_writes_normalized_evidence_bundle_path() {
+        let root = temp_root("verify-evidence-normalized-write");
+        let outside = temp_root("verify-evidence-normalized-write-outside");
+        fs::create_dir_all(outside.join("target")).expect("outside target should be created");
+        std::os::unix::fs::symlink(outside.join("target"), root.join("link"))
+            .expect("link should be created");
+        write_file(&root.join("README.md"), "old\n");
+        let proposal_path = root.join("proposal.json");
+        let journal_path = root.join("results.jsonl");
+        let proposal = base_proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        let mut config = config(&root, &proposal_path, &journal_path);
+        config.evidence_bundle_path = Some(root.join("link/../safe/bundle.json"));
+
+        let record = verify_and_record(config).expect("normalized bundle path should verify");
+
+        assert_eq!(record.status, VerificationStatus::Verified);
+        assert!(root.join("safe/bundle.json").exists());
+        assert!(!outside.join("safe/bundle.json").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn verification_skips_hardlinked_evidence_bundle_path_without_changing_gate() {
+        let root = temp_root("verify-evidence-hardlink-overwrite");
+        write_file(&root.join("README.md"), "old\n");
+        let proposal_path = root.join("proposal.json");
+        let journal_path = root.join("results.jsonl");
+        write_file(&journal_path, "existing journal\n");
+        let bundle_path = root.join("bundle.json");
+        fs::hard_link(&journal_path, &bundle_path).expect("bundle hardlink should be created");
+        let proposal = base_proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        let mut config = config(&root, &proposal_path, &journal_path);
+        config.evidence_bundle_path = Some(bundle_path);
+
+        let record = verify_and_record(config).expect("hardlinked bundle path should not gate P1");
+
+        assert_eq!(record.status, VerificationStatus::Verified);
+        let journal = fs::read_to_string(&journal_path).expect("journal should remain readable");
+        assert!(journal.starts_with("existing journal\n"));
+        assert!(journal.contains("verified"));
+    }
+
+    #[test]
+    fn root_fingerprint_ignores_memory_evidence_bundles() {
+        let root = temp_root("root-fingerprint-evidence-bundle");
+        write_file(&root.join("README.md"), "old\n");
+        let proposal_path = root.join("proposal.json");
+        let proposal = base_proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        let before = root_fingerprint(&root, &proposal_path, &proposal)
+            .expect("root fingerprint should compute before evidence bundle");
+
+        write_file(
+            &root.join("memory/evidence/p1.json"),
+            "{\"volatile\":true}\n",
+        );
+        let after = root_fingerprint(&root, &proposal_path, &proposal)
+            .expect("root fingerprint should compute after evidence bundle");
+
+        assert_eq!(before, after);
+    }
+
+    #[test]
     fn bare_relative_proposal_path_resolves_sibling_patch_path() {
         let _guard = CWD_LOCK
             .get_or_init(|| Mutex::new(()))
@@ -1006,6 +1420,7 @@ mod tests {
             work_dir: Some(temp_root("work")),
             keep_worktree: false,
             skip_default_checks: true,
+            evidence_bundle_path: None,
         };
 
         let result = verify_and_record(config);

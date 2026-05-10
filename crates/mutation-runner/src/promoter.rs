@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 use crate::verifier::{
     PatchInputError, VerifyConfig, append_jsonl, apply_patch_to_worktree, create_worktree,
-    proposal_fingerprint, read_proposal, read_proposal_patch, root_fingerprint, run_command,
-    validate_proposal,
+    evidence_provenance, optional_evidence_bundle_path, proposal_fingerprint, read_proposal,
+    read_proposal_patch, root_fingerprint, run_command, validate_proposal, write_json,
 };
 
 #[derive(Debug, Clone)]
@@ -30,6 +30,7 @@ pub(crate) struct PromoteConfig {
     pub(crate) changed_organs: Vec<String>,
     pub(crate) extra_checks: Vec<ProposalCheck>,
     pub(crate) skip_default_checks: bool,
+    pub(crate) evidence_bundle_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -53,9 +54,26 @@ impl PromotionEvidence {
 }
 
 pub(crate) fn promote_and_record(config: PromoteConfig) -> Result<MutationPromotionRecord> {
+    let evidence_bundle_path = optional_evidence_bundle_path(
+        "promotion",
+        config.evidence_bundle_path.as_deref(),
+        &[&config.journal_path, &config.verification_journal_path],
+    );
     let proposal = read_proposal(&config.proposal_path)?;
     let record = promote_proposal(&proposal, &config);
     append_jsonl(&config.journal_path, &record)?;
+    if let Some(path) = &evidence_bundle_path {
+        let write_result = evidence_provenance(
+            "mutation-promotion-record",
+            format!("{}#{}", config.journal_path.display(), record.promotion_id),
+            "0.1.0",
+            &record,
+        )
+        .and_then(|provenance| write_json(path, &record.to_evidence_bundle(provenance)));
+        if let Err(error) = write_result {
+            eprintln!("warning: skipped promotion EvidenceBundle output: {error:#}");
+        }
+    }
     Ok(record)
 }
 
@@ -238,6 +256,7 @@ fn promote_proposal(
         work_dir: config.work_dir.clone(),
         keep_worktree: config.keep_worktree,
         skip_default_checks: true,
+        evidence_bundle_path: None,
     };
     let worktree = match create_worktree(&verify_config) {
         Ok(worktree) => worktree,
@@ -518,6 +537,7 @@ mod tests {
                 args: Vec::new(),
             }],
             skip_default_checks: true,
+            evidence_bundle_path: None,
         }
     }
 
@@ -554,6 +574,179 @@ mod tests {
         assert!(record.promotion_root_fingerprint.starts_with("sha256:"));
         assert!(root.join("promotions.jsonl").exists());
         assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "old\n");
+    }
+
+    #[test]
+    fn promotion_can_write_evidence_bundle() {
+        let root = temp_root("promotion-evidence-bundle");
+        write_file(&root.join("README.md"), "old\n");
+        let proposal_path = root.join("proposal.json");
+        let verification_journal_path = root.join("mutation-results.jsonl");
+        let bundle_path = root.join("evidence/promotion.json");
+        let proposal = proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        write_verification(
+            &verification_journal_path,
+            &verification(
+                &root,
+                &proposal_path,
+                &proposal,
+                VerificationStatus::Verified,
+            ),
+        );
+        let mut config = config(&root, &proposal_path, &verification_journal_path);
+        config.evidence_bundle_path = Some(bundle_path.clone());
+
+        let record = promote_and_record(config).expect("promotion should produce a record");
+
+        assert_eq!(record.status, PromotionStatus::Promoted);
+        let bundle: autopoietic_core::EvidenceBundle = serde_json::from_slice(
+            &fs::read(bundle_path).expect("evidence bundle should be written"),
+        )
+        .expect("evidence bundle should parse");
+        assert_eq!(bundle.subject.mutation_id, "mut-promote");
+        assert_eq!(bundle.claims[0].claim, "mutation promoted");
+        assert_eq!(
+            bundle.comparisons[0].status,
+            autopoietic_core::ComparisonStatus::Matched
+        );
+    }
+
+    #[test]
+    fn promotion_skips_evidence_bundle_overwriting_journal_without_changing_gate() {
+        let root = temp_root("promotion-evidence-overwrite");
+        write_file(&root.join("README.md"), "old\n");
+        let proposal_path = root.join("proposal.json");
+        let verification_journal_path = root.join("mutation-results.jsonl");
+        let proposal = proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        write_verification(
+            &verification_journal_path,
+            &verification(
+                &root,
+                &proposal_path,
+                &proposal,
+                VerificationStatus::Verified,
+            ),
+        );
+        let mut config = config(&root, &proposal_path, &verification_journal_path);
+        config.evidence_bundle_path = Some(config.journal_path.clone());
+
+        let record = promote_and_record(config).expect("unsafe evidence path should not gate P2");
+
+        assert_eq!(record.status, PromotionStatus::Promoted);
+        assert!(
+            fs::read_to_string(root.join("promotions.jsonl"))
+                .expect("primary promotion journal should be written")
+                .contains("promoted")
+        );
+    }
+
+    #[test]
+    fn promotion_skips_evidence_bundle_overwriting_verification_journal_without_changing_gate() {
+        let root = temp_root("promotion-evidence-overwrite-verification");
+        write_file(&root.join("README.md"), "old\n");
+        let proposal_path = root.join("proposal.json");
+        let verification_journal_path = root.join("mutation-results.jsonl");
+        let proposal = proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        write_verification(
+            &verification_journal_path,
+            &verification(
+                &root,
+                &proposal_path,
+                &proposal,
+                VerificationStatus::Verified,
+            ),
+        );
+        let before = fs::read_to_string(&verification_journal_path)
+            .expect("verification journal should be readable before promotion");
+        let mut config = config(&root, &proposal_path, &verification_journal_path);
+        config.evidence_bundle_path = Some(verification_journal_path.clone());
+
+        let record = promote_and_record(config).expect("unsafe evidence path should not gate P2");
+
+        assert_eq!(record.status, PromotionStatus::Promoted);
+        assert_eq!(
+            fs::read_to_string(&verification_journal_path)
+                .expect("verification journal should remain readable"),
+            before
+        );
+        assert!(root.join("promotions.jsonl").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn promotion_skips_symlinked_journal_alias_without_corrupting_jsonl() {
+        let root = temp_root("promotion-evidence-symlink-journal-alias");
+        fs::create_dir_all(root.join("memory")).expect("memory directory should be created");
+        std::os::unix::fs::symlink(root.join("memory"), root.join("link"))
+            .expect("journal path symlink should be created");
+        write_file(&root.join("README.md"), "old\n");
+        let proposal_path = root.join("proposal.json");
+        let verification_journal_path = root.join("mutation-results.jsonl");
+        let bundle_path = root.join("memory/promotions.jsonl");
+        let proposal = proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        write_verification(
+            &verification_journal_path,
+            &verification(
+                &root,
+                &proposal_path,
+                &proposal,
+                VerificationStatus::Verified,
+            ),
+        );
+        let mut config = config(&root, &proposal_path, &verification_journal_path);
+        config.journal_path = root.join("link/promotions.jsonl");
+        config.evidence_bundle_path = Some(bundle_path.clone());
+
+        let record = promote_and_record(config).expect("symlinked journal should not gate P2");
+
+        assert_eq!(record.status, PromotionStatus::Promoted);
+        let journal = fs::read_to_string(&bundle_path).expect("journal target should be written");
+        let parsed: MutationPromotionRecord = serde_json::from_str(journal.trim())
+            .expect("aliased target should remain a JSONL promotion record, not a bundle");
+        assert_eq!(parsed.status, PromotionStatus::Promoted);
+    }
+
+    #[test]
+    fn promotion_does_not_copy_memory_evidence_into_worktree() {
+        let root = temp_root("promotion-evidence-not-copied");
+        write_file(&root.join("README.md"), "old\n");
+        write_file(
+            &root.join("memory/evidence/p1.json"),
+            "{\"volatile\":true}\n",
+        );
+        let proposal_path = root.join("proposal.json");
+        let verification_journal_path = root.join("mutation-results.jsonl");
+        let proposal = proposal(&patch_one_file("README.md", "old", "new"));
+        write_proposal(&proposal_path, &proposal);
+        write_verification(
+            &verification_journal_path,
+            &verification(
+                &root,
+                &proposal_path,
+                &proposal,
+                VerificationStatus::Verified,
+            ),
+        );
+        let mut config = config(&root, &proposal_path, &verification_journal_path);
+        config.extra_checks = vec![ProposalCheck {
+            name: "evidence-sidecar-absent".to_owned(),
+            command: "test".to_owned(),
+            args: vec![
+                "!".to_owned(),
+                "-e".to_owned(),
+                "memory/evidence/p1.json".to_owned(),
+            ],
+        }];
+
+        let record = promote_and_record(config).expect("evidence sidecar should not affect P2");
+
+        assert_eq!(record.status, PromotionStatus::Promoted);
+        assert_eq!(record.checks[1].name, "evidence-sidecar-absent");
+        assert_eq!(record.checks[1].status, VerificationCheckStatus::Passed);
     }
 
     #[test]

@@ -12,7 +12,7 @@ Promotion consumes three inputs:
 
 Promotion writes structured records matching `memory/mutation-promotion.schema.json`. By default, entries are appended to `memory/mutation-promotions.jsonl`.
 
-The root fingerprint covers the copied genome content, excluding proposal inputs, build outputs, `.git`, and JSONL ledgers. The isolated worktree copy uses the same JSONL exclusion so volatile journals cannot silently differ between P1 and P2 while still influencing promotion checks.
+The root fingerprint covers the copied genome content, excluding proposal inputs, build outputs, `.git`, JSONL ledgers, and optional `memory/evidence/` sidecars. The isolated worktree copy uses the same JSONL and `memory/evidence/` exclusions so volatile evidence cannot silently differ between P1 and P2 while still influencing promotion checks.
 
 ## CLI behavior
 
@@ -29,10 +29,11 @@ The root fingerprint covers the copied genome content, excluding proposal inputs
 9. Replay the patch inside that isolated worktree.
 10. Run generated VM promotion checks with `nix build --no-link --print-out-paths --no-write-lock-file path:<worktree>#checks.<system>.<vm-check>`.
 11. Append a promotion result to `memory/mutation-promotions.jsonl`, or to `--journal <path>` if provided.
+12. If `--evidence-bundle <path>` is supplied, attempt to write a derived `EvidenceBundle` JSON file for the promotion record.
 
 The default VM check is `iso-boot-basic`. Pass `--vm-check <name>` one or more times to select different flake checks. The default system is `x86_64-linux`, and the default target configuration label is `iso`. A selected VM check must begin with `<target-configuration>-`, so a record cannot claim target `aion` while running an `iso-*` check.
 
-The CLI exits successfully only when the proposal is `promoted`. Rejected and errored promotions are still journaled before the CLI returns a non-zero exit.
+The CLI exits successfully only when the proposal is `promoted`. Rejected and errored promotions are still journaled before the CLI returns a non-zero exit. Evidence bundle output is optional and does not replace or gate the JSONL promotion journal; invalid or unwritable bundle output is skipped with a warning after preserving the primary record.
 
 ## Promotion evidence
 
