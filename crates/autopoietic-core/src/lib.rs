@@ -372,6 +372,36 @@ pub struct InstallPlanOutput {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+pub enum InstallSeedFileStatus {
+    Matched,
+    Missing,
+    Mismatched,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InstallSeedFileVerification {
+    pub installed_path: String,
+    pub target_path: String,
+    pub expected_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_sha256: Option<String>,
+    pub status: InstallSeedFileStatus,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InstallVerifyOutput {
+    pub verified_at: String,
+    pub target_root: String,
+    pub mutation_id: String,
+    pub promotion_id: String,
+    pub all_matched: bool,
+    pub files: Vec<InstallSeedFileVerification>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
 pub enum OrganType {
     TmpTool,
     Cli,

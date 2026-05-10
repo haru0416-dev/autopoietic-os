@@ -1,12 +1,17 @@
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
+
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 use anyhow::{Context, Result, bail};
 use autopoietic_core::{
     EffectRecord, EffectRisk, GenerationRecord, InstallPlanOutput, InstallSeedFilePlan,
-    InstallSeedManifest, LineageStatus, MutationPromotionRecord, MutationVerificationRecord,
-    PlannedEffect, PromotionStatus, VerificationCheckStatus,
+    InstallSeedFileStatus, InstallSeedFileVerification, InstallSeedManifest, InstallVerifyOutput,
+    LineageStatus, MutationPromotionRecord, MutationVerificationRecord, PlannedEffect,
+    PromotionStatus, VerificationCheckStatus,
 };
 use chrono::Utc;
 use serde::Serialize;
@@ -27,6 +32,11 @@ pub(crate) struct InstallPlanConfig {
     pub(crate) record: bool,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct InstallVerifyConfig {
+    pub(crate) plan_path: PathBuf,
+}
+
 pub(crate) fn install_plan_and_record(config: InstallPlanConfig) -> Result<InstallPlanOutput> {
     let promotion = read_selected_promotion(&config)?;
     validate_install_plan_input(&config, &promotion)?;
@@ -41,6 +51,261 @@ pub(crate) fn install_plan_and_record(config: InstallPlanConfig) -> Result<Insta
         generation: record,
         seed_manifest,
     })
+}
+
+pub(crate) fn verify_install_plan(config: InstallVerifyConfig) -> Result<InstallVerifyOutput> {
+    let plan = read_install_plan_output(&config.plan_path)?;
+    validate_install_verify_plan(&plan)?;
+    let files = plan
+        .seed_manifest
+        .files
+        .iter()
+        .map(verify_seed_file)
+        .collect::<Vec<_>>();
+    let all_matched = files
+        .iter()
+        .all(|file| file.status == InstallSeedFileStatus::Matched);
+    Ok(InstallVerifyOutput {
+        verified_at: Utc::now().to_rfc3339(),
+        target_root: plan.seed_manifest.target_root,
+        mutation_id: plan.seed_manifest.mutation_id,
+        promotion_id: plan.seed_manifest.promotion_id,
+        all_matched,
+        files,
+    })
+}
+
+fn validate_install_verify_plan(plan: &InstallPlanOutput) -> Result<()> {
+    if plan.seed_manifest.schema_version != "0.1.0" {
+        bail!(
+            "unsupported install seed manifest schema_version: {}",
+            plan.seed_manifest.schema_version
+        );
+    }
+    if plan.seed_manifest.files.is_empty() {
+        bail!("install seed manifest contains no files to verify");
+    }
+    let target_root = Path::new(&plan.seed_manifest.target_root);
+    if !target_root.is_absolute() {
+        bail!("install seed manifest target_root must be absolute");
+    }
+    for file in &plan.seed_manifest.files {
+        let installed_path = Path::new(&file.installed_path);
+        if !installed_path.is_absolute() {
+            bail!(
+                "install seed installed_path must be absolute: {}",
+                file.installed_path
+            );
+        }
+        if path_has_parent_component(installed_path) {
+            bail!(
+                "install seed installed_path must not contain parent components: {}",
+                file.installed_path
+            );
+        }
+        if !is_sha256_uri(&file.content_sha256) {
+            bail!(
+                "install seed content_sha256 must match sha256:<64 lowercase hex>: {}",
+                file.content_sha256
+            );
+        }
+        let target_path = Path::new(&file.target_path);
+        if !target_path.is_absolute() {
+            bail!(
+                "install seed target_path must be absolute: {}",
+                file.target_path
+            );
+        }
+        if !normalized_starts_with(target_path, target_root) {
+            bail!(
+                "install seed target_path is outside target_root: {}",
+                file.target_path
+            );
+        }
+        let expected_target_path = expected_target_path(target_root, installed_path)?;
+        if normalize_components(target_path) != normalize_components(&expected_target_path) {
+            bail!(
+                "install seed target_path does not match target_root plus installed_path: {}",
+                file.target_path
+            );
+        }
+    }
+    Ok(())
+}
+
+fn read_install_plan_output(path: &Path) -> Result<InstallPlanOutput> {
+    let bytes = fs::read(path)
+        .with_context(|| format!("failed to read install plan {}", path.display()))?;
+    serde_json::from_slice(&bytes)
+        .with_context(|| format!("failed to parse install plan {}", path.display()))
+}
+
+fn verify_seed_file(file: &InstallSeedFilePlan) -> InstallSeedFileVerification {
+    match read_seed_file_without_symlink_traversal(Path::new(&file.target_path)) {
+        Ok(bytes) => {
+            let actual_sha256 = sha256(&bytes);
+            if actual_sha256 == file.content_sha256 {
+                seed_verification(
+                    file,
+                    Some(actual_sha256),
+                    InstallSeedFileStatus::Matched,
+                    "content hash matched".to_owned(),
+                )
+            } else {
+                seed_verification(
+                    file,
+                    Some(actual_sha256),
+                    InstallSeedFileStatus::Mismatched,
+                    "content hash did not match install seed manifest".to_owned(),
+                )
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => seed_verification(
+            file,
+            None,
+            InstallSeedFileStatus::Missing,
+            "target file is missing".to_owned(),
+        ),
+        Err(error) => seed_verification(
+            file,
+            None,
+            InstallSeedFileStatus::Error,
+            format!("failed to read target file: {error}"),
+        ),
+    }
+}
+
+fn read_seed_file_without_symlink_traversal(path: &Path) -> Result<Vec<u8>, std::io::Error> {
+    if path_has_symlink_ancestor_for_seed(path)? {
+        return Err(std::io::Error::other(
+            "target path traverses a symlink before read",
+        ));
+    }
+
+    ensure_path_is_regular_seed_file(path)?;
+
+    let mut file = open_seed_file(path)?;
+
+    if path_has_symlink_ancestor_for_seed(path)? {
+        return Err(std::io::Error::other(
+            "target path traverses a symlink after read opened the file",
+        ));
+    }
+
+    ensure_opened_file_still_matches_path(&file, path)?;
+
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    ensure_opened_file_still_matches_path(&file, path)?;
+    Ok(bytes)
+}
+
+fn ensure_path_is_regular_seed_file(path: &Path) -> Result<(), std::io::Error> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_file() {
+        return Err(std::io::Error::other(
+            "target path is not a regular seed file",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn open_seed_file(path: &Path) -> Result<File, std::io::Error> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn open_seed_file(path: &Path) -> Result<File, std::io::Error> {
+    File::open(path)
+}
+
+fn path_has_symlink_ancestor_for_seed(path: &Path) -> Result<bool, std::io::Error> {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => return Ok(true),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(unix)]
+fn ensure_opened_file_still_matches_path(file: &File, path: &Path) -> Result<(), std::io::Error> {
+    let open_metadata = file.metadata()?;
+    if !open_metadata.file_type().is_file() {
+        return Err(std::io::Error::other(
+            "opened target path is not a regular seed file",
+        ));
+    }
+    let path_metadata = fs::symlink_metadata(path)?;
+    if !path_metadata.file_type().is_file() {
+        return Err(std::io::Error::other(
+            "current target path is not a regular seed file",
+        ));
+    }
+    if open_metadata.dev() != path_metadata.dev() || open_metadata.ino() != path_metadata.ino() {
+        return Err(std::io::Error::other(
+            "target path changed while verification was opening the file",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn ensure_opened_file_still_matches_path(_file: &File, _path: &Path) -> Result<(), std::io::Error> {
+    Ok(())
+}
+
+fn is_sha256_uri(value: &str) -> bool {
+    let Some(hex) = value.strip_prefix("sha256:") else {
+        return false;
+    };
+    hex.len() == 64
+        && hex
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+fn path_has_parent_component(path: &Path) -> bool {
+    path.components()
+        .any(|component| component == Component::ParentDir)
+}
+
+fn expected_target_path(target_root: &Path, installed_path: &Path) -> Result<PathBuf> {
+    let relative_installed_path =
+        installed_path
+            .strip_prefix(Path::new("/"))
+            .with_context(|| {
+                format!(
+                    "failed to relativize installed_path {}",
+                    installed_path.display()
+                )
+            })?;
+    Ok(target_root.join(relative_installed_path))
+}
+
+fn seed_verification(
+    file: &InstallSeedFilePlan,
+    actual_sha256: Option<String>,
+    status: InstallSeedFileStatus,
+    reason: String,
+) -> InstallSeedFileVerification {
+    InstallSeedFileVerification {
+        installed_path: file.installed_path.clone(),
+        target_path: file.target_path.clone(),
+        expected_sha256: file.content_sha256.clone(),
+        actual_sha256,
+        status,
+        reason,
+    }
 }
 
 fn read_selected_promotion(config: &InstallPlanConfig) -> Result<MutationPromotionRecord> {
@@ -585,6 +850,58 @@ mod tests {
         .expect("verification journal should be written");
     }
 
+    fn verify_plan(root: &Path, content_sha256: String) -> InstallPlanOutput {
+        let target_path = root.join("installed-root/etc/autopoietic/identity.json");
+        InstallPlanOutput {
+            generation: GenerationRecord {
+                timestamp: Utc::now().to_rfc3339(),
+                lineage_status: LineageStatus::Planned,
+                generation: "gen-child".to_owned(),
+                mutation_id: "mut-test".to_owned(),
+                goal: "test install verify".to_owned(),
+                changed_organs: Vec::new(),
+                parent_generation: Some("gen-parent".to_owned()),
+                activation_result: "planned-install".to_owned(),
+                verification_id: Some("ver-test".to_owned()),
+                promotion_id: Some("pro-test".to_owned()),
+                target_root: Some(root.join("installed-root").display().to_string()),
+                target_configuration: Some("iso".to_owned()),
+                metadata: BTreeMap::new(),
+            },
+            seed_manifest: InstallSeedManifest {
+                schema_version: "0.1.0".to_owned(),
+                generated_at: Utc::now().to_rfc3339(),
+                target_root: root.join("installed-root").display().to_string(),
+                mutation_id: "mut-test".to_owned(),
+                promotion_id: "pro-test".to_owned(),
+                lineage_status: LineageStatus::Planned,
+                files: vec![InstallSeedFilePlan {
+                    installed_path: "/etc/autopoietic/identity.json".to_owned(),
+                    target_path: target_path.display().to_string(),
+                    source: "test".to_owned(),
+                    content_sha256,
+                    effect: PlannedEffect {
+                        effect_type: "planned-seed-file-write".to_owned(),
+                        target: target_path.display().to_string(),
+                        reversible: false,
+                        compensation: "test".to_owned(),
+                        verified_by: "test".to_owned(),
+                        risk: EffectRisk::Low,
+                        metadata: BTreeMap::new(),
+                    },
+                }],
+            },
+        }
+    }
+
+    fn write_install_plan(path: &Path, plan: &InstallPlanOutput) {
+        fs::write(
+            path,
+            serde_json::to_vec(plan).expect("install plan should serialize"),
+        )
+        .expect("install plan should be written");
+    }
+
     fn config(root: &Path) -> InstallPlanConfig {
         let verification_journal_path = root.join("verifications.jsonl");
         if !verification_journal_path.exists() {
@@ -752,6 +1069,246 @@ mod tests {
             assert_eq!(file.effect.verified_by, "mutation-runner install-plan");
             assert!(!Path::new(&file.target_path).exists());
         }
+    }
+
+    #[test]
+    fn install_verify_succeeds_when_seed_files_match_manifest_hashes() {
+        let root = temp_root("install-verify-matched");
+        let content = br#"{"host":"iso"}"#;
+        let plan = verify_plan(&root, sha256(content));
+        let target_path = PathBuf::from(&plan.seed_manifest.files[0].target_path);
+        fs::create_dir_all(target_path.parent().expect("target file has parent"))
+            .expect("target parent should be created");
+        fs::write(&target_path, content).expect("target file should be written");
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let output = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect("install verification should run");
+
+        assert!(output.all_matched);
+        assert_eq!(output.files[0].status, InstallSeedFileStatus::Matched);
+        assert_eq!(
+            output.files[0].actual_sha256.as_deref(),
+            Some(sha256(content).as_str())
+        );
+    }
+
+    #[test]
+    fn install_verify_reports_missing_seed_files() {
+        let root = temp_root("install-verify-missing");
+        let plan = verify_plan(&root, sha256(b"expected"));
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let output = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect("install verification should run");
+
+        assert!(!output.all_matched);
+        assert_eq!(output.files[0].status, InstallSeedFileStatus::Missing);
+    }
+
+    #[test]
+    fn install_verify_reports_mismatched_seed_files() {
+        let root = temp_root("install-verify-mismatched");
+        let plan = verify_plan(&root, sha256(b"expected"));
+        let target_path = PathBuf::from(&plan.seed_manifest.files[0].target_path);
+        fs::create_dir_all(target_path.parent().expect("target file has parent"))
+            .expect("target parent should be created");
+        fs::write(&target_path, b"actual").expect("target file should be written");
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let output = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect("install verification should run");
+
+        assert!(!output.all_matched);
+        assert_eq!(output.files[0].status, InstallSeedFileStatus::Mismatched);
+        assert_eq!(
+            output.files[0].actual_sha256.as_deref(),
+            Some(sha256(b"actual").as_str())
+        );
+    }
+
+    #[test]
+    fn install_verify_reports_error_for_non_regular_target_paths() {
+        let root = temp_root("install-verify-non-regular-target");
+        let mut plan = verify_plan(&root, sha256(b"expected"));
+        plan.seed_manifest.files[0].installed_path = "/etc/autopoietic".to_owned();
+        plan.seed_manifest.files[0].target_path = root
+            .join("installed-root/etc/autopoietic")
+            .display()
+            .to_string();
+        fs::create_dir_all(&plan.seed_manifest.files[0].target_path)
+            .expect("target directory should be created");
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let output = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect("non-regular target path produces a verification report");
+
+        assert!(!output.all_matched);
+        assert_eq!(output.files[0].status, InstallSeedFileStatus::Error);
+        assert!(output.files[0].reason.contains("not a regular seed file"));
+    }
+
+    #[test]
+    fn install_verify_rejects_empty_seed_manifest() {
+        let root = temp_root("install-verify-empty-manifest");
+        let mut plan = verify_plan(&root, sha256(b"expected"));
+        plan.seed_manifest.files = Vec::new();
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect_err("empty manifest fails");
+
+        assert!(error.to_string().contains("no files"));
+    }
+
+    #[test]
+    fn install_verify_rejects_unsupported_seed_manifest_schema_version() {
+        let root = temp_root("install-verify-schema-version");
+        let mut plan = verify_plan(&root, sha256(b"expected"));
+        plan.seed_manifest.schema_version = "9.9.9".to_owned();
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect_err("unsupported schema version fails");
+
+        assert!(error.to_string().contains("schema_version"));
+    }
+
+    #[test]
+    fn install_verify_rejects_malformed_seed_manifest_hashes() {
+        let root = temp_root("install-verify-malformed-hash");
+        let mut plan = verify_plan(&root, sha256(b"expected"));
+        plan.seed_manifest.files[0].content_sha256 = "not-a-sha256-uri".to_owned();
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect_err("malformed content hash fails");
+
+        assert!(error.to_string().contains("content_sha256"));
+    }
+
+    #[test]
+    fn install_verify_rejects_relative_installed_paths() {
+        let root = temp_root("install-verify-relative-installed-path");
+        let mut plan = verify_plan(&root, sha256(b"expected"));
+        plan.seed_manifest.files[0].installed_path = "etc/autopoietic/identity.json".to_owned();
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect_err("relative installed path fails");
+
+        assert!(error.to_string().contains("installed_path"));
+    }
+
+    #[test]
+    fn install_verify_rejects_installed_paths_with_parent_components() {
+        let root = temp_root("install-verify-parent-installed-path");
+        let mut plan = verify_plan(&root, sha256(b"expected"));
+        plan.seed_manifest.files[0].installed_path = "/etc/../identity.json".to_owned();
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect_err("parent components in installed path fail");
+
+        assert!(error.to_string().contains("parent components"));
+    }
+
+    #[test]
+    fn install_verify_rejects_relative_target_paths() {
+        let root = temp_root("install-verify-relative-target");
+        let mut plan = verify_plan(&root, sha256(b"expected"));
+        plan.seed_manifest.files[0].target_path = "relative/path".to_owned();
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect_err("relative target path fails");
+
+        assert!(error.to_string().contains("must be absolute"));
+    }
+
+    #[test]
+    fn install_verify_rejects_target_paths_outside_target_root() {
+        let root = temp_root("install-verify-outside-target");
+        let mut plan = verify_plan(&root, sha256(b"expected"));
+        plan.seed_manifest.files[0].target_path = root.join("outside-file").display().to_string();
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect_err("outside target path fails");
+
+        assert!(error.to_string().contains("outside target_root"));
+    }
+
+    #[test]
+    fn install_verify_rejects_target_paths_that_do_not_match_installed_paths() {
+        let root = temp_root("install-verify-target-binding");
+        let mut plan = verify_plan(&root, sha256(b"expected"));
+        plan.seed_manifest.files[0].target_path = root
+            .join("installed-root/var/lib/autopoietic/identity.json")
+            .display()
+            .to_string();
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let error = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect_err("target path must match installed path");
+
+        assert!(error.to_string().contains("installed_path"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_verify_reports_error_for_target_paths_through_symlinks() {
+        let root = temp_root("install-verify-symlink-target");
+        fs::create_dir_all(root.join("outside"))
+            .expect("outside dir should be created for symlink test");
+        fs::create_dir_all(root.join("installed-root/etc"))
+            .expect("target root parent should be created for symlink test");
+        std::os::unix::fs::symlink(
+            root.join("outside"),
+            root.join("installed-root/etc/autopoietic"),
+        )
+        .expect("target path symlink should be created");
+        let plan = verify_plan(&root, sha256(b"expected"));
+        let plan_path = root.join("plan.json");
+        write_install_plan(&plan_path, &plan);
+
+        let output = verify_install_plan(InstallVerifyConfig { plan_path })
+            .expect("symlink target path produces a verification report");
+
+        assert!(!output.all_matched);
+        assert_eq!(output.files[0].status, InstallSeedFileStatus::Error);
+        assert!(output.files[0].reason.contains("symlink"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_verify_rejects_target_path_swapped_to_symlink_after_open() {
+        let root = temp_root("install-verify-symlink-after-open");
+        let target_path = root.join("target.json");
+        let replacement_path = root.join("replacement.json");
+        fs::write(&target_path, b"original").expect("target file should be written");
+        fs::write(&replacement_path, b"replacement").expect("replacement file should be written");
+        let file = File::open(&target_path).expect("target file should open");
+        fs::remove_file(&target_path).expect("target file should be removed");
+        std::os::unix::fs::symlink(&replacement_path, &target_path)
+            .expect("target path should be swapped to a symlink");
+
+        let error = ensure_opened_file_still_matches_path(&file, &target_path)
+            .expect_err("current symlink path should fail stability check");
+
+        assert!(error.to_string().contains("regular seed file"));
     }
 
     #[test]

@@ -109,7 +109,7 @@ P3 requires:
 - no destructive disk or live-system operation without explicit approval;
 - generation lineage records linking mutation ID, parent generation, resulting generation, activation or install result, changed organs, lineage status, and verifier evidence — implemented for planned installs by `GenerationRecord` fields and optional `--record` journal writes;
 - installed-system Autopoietic memory seed for identity, mutation results, generation ledger, and effect ledger — initially represented as a dry-run seed manifest in `mutation-runner install-plan` output;
-- post-install verification that the installed root can be evaluated and that lineage entries are readable;
+- post-install verification that the installed root can be evaluated and that lineage entries are readable — seed-file hash verification is initially implemented by read-only `mutation-runner install-verify`;
 - effect ledger entries for non-Nix side effects caused by install workflow steps.
 
 The initial P3 slice intentionally stops before `nixos-install`, target-root writes, partitioning, or installed-root evaluation. Those require separate external grounding and explicit approval because they cross into live install side effects.

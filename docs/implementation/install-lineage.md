@@ -50,3 +50,16 @@ The initial manifest covers identity, P1 verification record, P2 promotion evide
 This initial P3 slice does not run `nixos-install`, does not call `nixos-rebuild`, does not partition disks, and does not write to the target root. The only optional write is the local generation journal append under `--record`.
 
 Real install execution, installed memory seeding, effect ledger writes for target-root side effects, and post-install NixOS evaluation are deferred until their external command behavior is grounded and the user explicitly approves those side effects. Later install execution must transition lineage from `planned` to `installed` or `failed`; planned records must not be treated as accepted installed generations.
+
+## Read-only seed verification
+
+`mutation-runner install-verify --plan <plan.json>` reads an install-plan output and verifies the target files listed in `seed_manifest.files` without writing anything. The verifier treats each seed entry as a regular file whose `target_path` must equal `target_root` plus the entry's absolute `installed_path`. Each file is reported as:
+
+- `matched`, when the target file exists and its SHA-256 matches `content_sha256`;
+- `missing`, when the target file is absent;
+- `mismatched`, when the target file exists but has different content;
+- `error`, when the verifier cannot read the target path.
+
+The command exits successfully only when all listed files are `matched`. Missing, mismatched, unreadable, non-regular, or symlink-traversing seed files produce a JSON report and a non-zero exit. Invalid manifests are rejected before report generation. The verifier rejects manifests with no files, unsupported seed schema versions, malformed seed hashes, relative or parent-traversing installed paths, target paths that are relative or outside the manifest `target_root`, and target paths that do not match `target_root` plus `installed_path`.
+
+This verifier checks only the planned seed-file hashes. Installed-root NixOS evaluation and actual install execution remain deferred until their external command behavior is grounded.

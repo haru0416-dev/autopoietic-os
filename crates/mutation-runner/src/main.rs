@@ -10,7 +10,9 @@ use std::path::PathBuf;
 use anyhow::{Result, bail};
 use autopoietic_core::{PromotionStatus, VerificationStatus};
 use clap::{Parser, Subcommand};
-use installer::{InstallPlanConfig, install_plan_and_record};
+use installer::{
+    InstallPlanConfig, InstallVerifyConfig, install_plan_and_record, verify_install_plan,
+};
 use promoter::{PromoteConfig, promote_and_record};
 use verifier::{VerifyConfig, verify_and_record};
 
@@ -26,6 +28,7 @@ enum Command {
     Verify(VerifyArgs),
     Promote(PromoteArgs),
     InstallPlan(InstallPlanArgs),
+    InstallVerify(InstallVerifyArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -139,6 +142,20 @@ impl From<InstallPlanArgs> for InstallPlanConfig {
     }
 }
 
+#[derive(Debug, Parser)]
+struct InstallVerifyArgs {
+    #[arg(long)]
+    plan: PathBuf,
+}
+
+impl From<InstallVerifyArgs> for InstallVerifyConfig {
+    fn from(value: InstallVerifyArgs) -> Self {
+        Self {
+            plan_path: value.plan,
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     match args.command {
@@ -164,6 +181,15 @@ fn main() -> Result<()> {
             let record = install_plan_and_record(args.into())?;
             println!("{}", serde_json::to_string_pretty(&record)?);
             Ok(())
+        }
+        Command::InstallVerify(args) => {
+            let record = verify_install_plan(args.into())?;
+            println!("{}", serde_json::to_string_pretty(&record)?);
+            if record.all_matched {
+                Ok(())
+            } else {
+                bail!("install seed verification failed")
+            }
         }
     }
 }
