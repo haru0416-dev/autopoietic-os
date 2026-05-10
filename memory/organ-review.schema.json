@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopoietic-os.local/schemas/organ-review.schema.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "reviewed_at",
+    "source",
+    "total_organs",
+    "findings",
+    "active",
+    "candidates",
+    "stale",
+    "duplicate",
+    "failed",
+    "unknown"
+  ],
+  "properties": {
+    "schema_version": { "const": "0.1.0" },
+    "reviewed_at": { "type": "string", "format": "date-time" },
+    "source": { "type": "string" },
+    "total_organs": { "type": "integer", "minimum": 0 },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "active": { "$ref": "#/$defs/organ_names" },
+    "candidates": { "$ref": "#/$defs/organ_names" },
+    "stale": { "$ref": "#/$defs/organ_names" },
+    "duplicate": { "$ref": "#/$defs/organ_names" },
+    "failed": { "$ref": "#/$defs/organ_names" },
+    "unknown": { "$ref": "#/$defs/organ_names" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "review_status": {
+      "enum": ["active", "candidate", "stale", "duplicate", "failed", "unknown"]
+    },
+    "organ_names": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "string_map": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "finding": {
+      "type": "object",
+      "required": ["name", "status", "reason"],
+      "properties": {
+        "name": { "type": "string" },
+        "status": { "$ref": "#/$defs/review_status" },
+        "reason": { "type": "string" },
+        "evidence": { "$ref": "#/$defs/string_map" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1118,6 +1118,7 @@ pub struct OrganRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrganReviewOutput {
+    pub schema_version: String,
     pub reviewed_at: String,
     pub source: String,
     pub total_organs: usize,
@@ -1148,6 +1149,209 @@ pub struct OrganReviewFinding {
     pub reason: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub evidence: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrganRegistrySuggestionOutput {
+    pub schema_version: String,
+    pub reviewed_at: String,
+    pub registry_source: String,
+    pub promotion_source: String,
+    pub generation_source: String,
+    pub source_statuses: BTreeMap<String, String>,
+    pub registered_organs: Vec<String>,
+    pub observed_changed_organs: Vec<String>,
+    pub candidates: Vec<OrganRegistrySuggestion>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limits: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrganRegistrySuggestion {
+    pub name: String,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub observed_in: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub evidence: BTreeMap<String, String>,
+}
+
+impl OrganReviewOutput {
+    pub fn to_evidence_bundle(&self, raw_ref: ProvenanceRef) -> EvidenceBundle {
+        let record_ref = format!("observation:organ-review:{}", self.source);
+        let groups_fact_ref = "fact:organ-review:status-groups".to_owned();
+        EvidenceBundle {
+            schema_version: "0.1.0".to_owned(),
+            bundle_id: format!("evidence:organ-review:{}", self.reviewed_at),
+            phase: "P4".to_owned(),
+            subject: p4_subject("organ-registry-review", &self.source),
+            inputs: vec![evidence_input(
+                "input:organ-review:output".to_owned(),
+                "organ-review-output",
+                raw_ref.clone(),
+            )],
+            observations: vec![EvidenceObservation {
+                observation_id: record_ref.clone(),
+                kind: "organ-review-output".to_owned(),
+                summary: "read-only organ decay review generated".to_owned(),
+                quality: DataQuality::Observed,
+                observed_at: Some(self.reviewed_at.clone()),
+                raw_ref,
+                metadata: BTreeMap::from([("source".to_owned(), self.source.clone())]),
+            }],
+            canonical_facts: organ_review_canonical_facts(self),
+            comparisons: Vec::new(),
+            claims: vec![EvidenceClaim {
+                claim_id: "claim:organ-review:generated".to_owned(),
+                claim: "organ decay review generated".to_owned(),
+                quality: DataQuality::Derived,
+                backing: vec![record_ref, groups_fact_ref],
+                limits: vec![
+                    "P4 organ review is advisory and read-only".to_owned(),
+                    "candidate, stale, duplicate, or failed status does not delete an organ"
+                        .to_owned(),
+                    "removal or replacement must pass through the P1/P2/P3 mutation pipeline"
+                        .to_owned(),
+                ],
+                metadata: BTreeMap::new(),
+            }],
+            metadata: BTreeMap::from([("registry_source".to_owned(), self.source.clone())]),
+        }
+    }
+}
+
+impl OrganRegistrySuggestionOutput {
+    pub fn to_evidence_bundle(&self, raw_ref: ProvenanceRef) -> EvidenceBundle {
+        let record_ref = format!("observation:organ-suggest:{}", self.reviewed_at);
+        let candidates_fact_ref = "fact:organ-suggest:candidate-organs".to_owned();
+        let mut limits = vec![
+            "P4 organ suggestions are advisory and read-only".to_owned(),
+            "suggestions do not append registry records or infer organ type/purpose".to_owned(),
+            "a missing candidate only means no exact changed_organs name was observed".to_owned(),
+        ];
+        limits.extend(self.limits.clone());
+        EvidenceBundle {
+            schema_version: "0.1.0".to_owned(),
+            bundle_id: format!("evidence:organ-suggest:{}", self.reviewed_at),
+            phase: "P4".to_owned(),
+            subject: p4_subject("organ-registry-suggestion", &self.registry_source),
+            inputs: vec![evidence_input(
+                "input:organ-suggest:output".to_owned(),
+                "organ-registry-suggestion-output",
+                raw_ref.clone(),
+            )],
+            observations: vec![EvidenceObservation {
+                observation_id: record_ref.clone(),
+                kind: "organ-registry-suggestion-output".to_owned(),
+                summary: "read-only organ registry suggestions generated".to_owned(),
+                quality: DataQuality::Observed,
+                observed_at: Some(self.reviewed_at.clone()),
+                raw_ref,
+                metadata: BTreeMap::from([
+                    ("registry_source".to_owned(), self.registry_source.clone()),
+                    ("promotion_source".to_owned(), self.promotion_source.clone()),
+                    (
+                        "generation_source".to_owned(),
+                        self.generation_source.clone(),
+                    ),
+                ]),
+            }],
+            canonical_facts: organ_suggestion_canonical_facts(self),
+            comparisons: Vec::new(),
+            claims: vec![EvidenceClaim {
+                claim_id: "claim:organ-suggest:generated".to_owned(),
+                claim: "organ registry suggestions generated".to_owned(),
+                quality: DataQuality::Derived,
+                backing: vec![record_ref, candidates_fact_ref],
+                limits,
+                metadata: BTreeMap::new(),
+            }],
+            metadata: BTreeMap::from([(
+                "registry_source".to_owned(),
+                self.registry_source.clone(),
+            )]),
+        }
+    }
+}
+
+fn p4_subject(kind: &str, source: &str) -> EvidenceSubject {
+    EvidenceSubject {
+        mutation_id: format!("p4:{kind}"),
+        proposal_fingerprint: "unknown:not-mutation-proposal-scoped".to_owned(),
+        root_fingerprint: Some("unknown:not-root-fingerprint-scoped".to_owned()),
+        generation_id: None,
+        metadata: BTreeMap::from([("source".to_owned(), source.to_owned())]),
+    }
+}
+
+fn organ_review_canonical_facts(review: &OrganReviewOutput) -> Vec<CanonicalFact> {
+    vec![
+        canonical_fact("organ-review", "total-organs", review.total_organs, &[]),
+        canonical_fact(
+            "organ-review",
+            "status-groups",
+            organ_status_groups(review),
+            &[],
+        ),
+        canonical_fact(
+            "organ-review",
+            "finding-statuses",
+            organ_finding_statuses(review),
+            &[],
+        ),
+    ]
+}
+
+fn organ_suggestion_canonical_facts(output: &OrganRegistrySuggestionOutput) -> Vec<CanonicalFact> {
+    vec![
+        canonical_fact(
+            "organ-suggest",
+            "registered-organs",
+            output.registered_organs.clone(),
+            &[],
+        ),
+        canonical_fact(
+            "organ-suggest",
+            "observed-changed-organs",
+            output.observed_changed_organs.clone(),
+            &[],
+        ),
+        canonical_fact(
+            "organ-suggest",
+            "candidate-organs",
+            output
+                .candidates
+                .iter()
+                .map(|candidate| candidate.name.clone())
+                .collect::<Vec<_>>(),
+            &[],
+        ),
+        canonical_fact(
+            "organ-suggest",
+            "source-statuses",
+            output.source_statuses.clone(),
+            &[],
+        ),
+    ]
+}
+
+fn organ_status_groups(review: &OrganReviewOutput) -> BTreeMap<String, Vec<String>> {
+    BTreeMap::from([
+        ("active".to_owned(), review.active.clone()),
+        ("candidates".to_owned(), review.candidates.clone()),
+        ("stale".to_owned(), review.stale.clone()),
+        ("duplicate".to_owned(), review.duplicate.clone()),
+        ("failed".to_owned(), review.failed.clone()),
+        ("unknown".to_owned(), review.unknown.clone()),
+    ])
+}
+
+fn organ_finding_statuses(review: &OrganReviewOutput) -> BTreeMap<String, OrganReviewStatus> {
+    review
+        .findings
+        .iter()
+        .map(|finding| (finding.name.clone(), finding.status))
+        .collect()
 }
 
 #[cfg(test)]
@@ -1432,5 +1636,87 @@ mod tests {
 
         assert_eq!(bundle.claims[0].claim, "seed verification failed");
         assert_eq!(bundle.comparisons[0].status, ComparisonStatus::Missing);
+    }
+
+    #[test]
+    fn organ_review_maps_to_p4_evidence_bundle() {
+        let review = OrganReviewOutput {
+            schema_version: "0.1.0".to_owned(),
+            reviewed_at: "2026-05-11T00:00:00Z".to_owned(),
+            source: "memory/organs.jsonl".to_owned(),
+            total_organs: 1,
+            findings: vec![OrganReviewFinding {
+                name: "mutation-journal".to_owned(),
+                status: OrganReviewStatus::Active,
+                reason: "explicit decay_status".to_owned(),
+                evidence: BTreeMap::new(),
+            }],
+            active: vec!["mutation-journal".to_owned()],
+            candidates: Vec::new(),
+            stale: Vec::new(),
+            duplicate: Vec::new(),
+            failed: Vec::new(),
+            unknown: Vec::new(),
+        };
+
+        let bundle = review.to_evidence_bundle(provenance("organ-review:stdout"));
+
+        assert_eq!(bundle.phase, "P4");
+        assert_eq!(bundle.claims[0].claim, "organ decay review generated");
+        assert!(
+            bundle.claims[0]
+                .limits
+                .iter()
+                .any(|limit| limit.contains("read-only"))
+        );
+        assert!(
+            bundle
+                .canonical_facts
+                .iter()
+                .any(|fact| fact.fact_id == "fact:organ-review:status-groups")
+        );
+    }
+
+    #[test]
+    fn organ_suggestions_map_to_p4_evidence_bundle_with_limits() {
+        let output = OrganRegistrySuggestionOutput {
+            schema_version: "0.1.0".to_owned(),
+            reviewed_at: "2026-05-11T00:00:00Z".to_owned(),
+            registry_source: "memory/organs.jsonl".to_owned(),
+            promotion_source: "memory/mutation-promotions.jsonl".to_owned(),
+            generation_source: "memory/generations.jsonl".to_owned(),
+            source_statuses: BTreeMap::from([(
+                "promotions".to_owned(),
+                "missing:treated-as-empty".to_owned(),
+            )]),
+            registered_organs: vec!["mutation-journal".to_owned()],
+            observed_changed_organs: vec!["new-organ".to_owned()],
+            candidates: vec![OrganRegistrySuggestion {
+                name: "new-organ".to_owned(),
+                reason: "missing".to_owned(),
+                observed_in: vec!["promotion:pro-test".to_owned()],
+                evidence: BTreeMap::new(),
+            }],
+            limits: vec!["promotions source was missing".to_owned()],
+        };
+
+        let bundle = output.to_evidence_bundle(provenance("organ-suggest:stdout"));
+
+        assert_eq!(bundle.phase, "P4");
+        assert_eq!(
+            bundle.claims[0].claim,
+            "organ registry suggestions generated"
+        );
+        assert!(
+            bundle.claims[0]
+                .limits
+                .contains(&"promotions source was missing".to_owned())
+        );
+        assert!(
+            bundle
+                .canonical_facts
+                .iter()
+                .any(|fact| fact.fact_id == "fact:organ-suggest:candidate-organs")
+        );
     }
 }

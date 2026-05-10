@@ -2,9 +2,9 @@
 
 This project uses `P` as the commit-level phase marker. A phase commit should represent a coherent system capability, not just a pile of files.
 
-## Current phase: initial P3 install planning and generation lineage
+## Current phase: initial P4 organ registry and decay review
 
-P3 is the current capability boundary. The repository contains a Rust `mutation-runner` CLI that verifies mutation proposals in an isolated worktree, promotes P1-verified mutations through an isolated VM-check gate, then creates dry-run install plans and generation lineage records from P2 promotion evidence without running a live install. The P3 boundary is defined in [ADR 0014](adr/0014-p3-install-workflow-and-generation-lineage-boundary.md).
+P4 is the current capability boundary. The repository contains a Rust `mutation-runner` CLI that verifies mutation proposals in an isolated worktree, promotes P1-verified mutations through an isolated VM-check gate, then creates dry-run install plans and generation lineage records from P2 promotion evidence without running a live install. It also contains a read-only `mutation-journal organ` path for explicit organ registry records, decay review, and missing-registry suggestions from recorded `changed_organs`. The P4 boundary is defined in [ADR 0017](adr/0017-p4-organ-registry-and-decay-review-boundary.md).
 
 P0 remains the committed ISO baseline. It contains focused BIOS and UEFI VM checks for an observe-only ISO, plus black-box BIOS and UEFI boot checks for the production ISO artifact. The P0 verification boundary is defined in [ADR 0012](adr/0012-p0-iso-verification-boundary.md).
 
@@ -62,7 +62,7 @@ Post-P0 phases should be proposed only after the previous phase has executable v
 - P3: install workflow and generation lineage linking;
 - P4: organ registry and decay review.
 
-P1, P2, P3, and P4 now have ADR boundaries. P3 remains the current implemented capability. Cross-phase evidence handoff is fixed by [ADR 0016](adr/0016-evidence-bundle-and-canonical-comparison-boundary.md); its initial shared vocabulary is represented by `EvidenceBundle` and `memory/evidence-bundle.schema.json`, with mapping rules in [evidence-bundles.md](implementation/evidence-bundles.md).
+P1, P2, P3, and P4 now have ADR boundaries. P4 is the current implemented capability boundary, while P3 remains the last install-related boundary and still stops before `nixos-install`. Cross-phase evidence handoff is fixed by [ADR 0016](adr/0016-evidence-bundle-and-canonical-comparison-boundary.md); its initial shared vocabulary is represented by `EvidenceBundle` and `memory/evidence-bundle.schema.json`, with mapping rules in [evidence-bundles.md](implementation/evidence-bundles.md).
 
 ## P1: offline mutation verifier
 
@@ -125,7 +125,9 @@ P4 requires:
 - an organ registry record for organ name, type, source, purpose, creator, usage, failures, related goals, and decay status;
 - a registry journal that can be validated against `memory/organ.schema.json` — implemented by `memory/organs.jsonl` entries written by `mutation-journal organ add`;
 - a CLI path to register organs and read the registry — implemented by `mutation-journal organ add` and `mutation-journal organ list`;
-- a decay review output that groups organs as active, candidate, stale, duplicate, failed, or unknown — implemented by read-only `mutation-journal organ review`;
+- a decay review output that groups organs as active, candidate, stale, duplicate, failed, or unknown — implemented by read-only `mutation-journal organ review` and described by `memory/organ-review.schema.json`;
+- a read-only suggestion output that turns promoted P2/P3 `changed_organs` observations into missing registry candidates — implemented by `mutation-journal organ suggest` and described by `memory/organ-registry-suggestion.schema.json`;
+- optional EvidenceBundle sidecars for P4 review/suggestion outputs that preserve advisory read-only limits;
 - no automatic deletion or live mutation from decay review alone.
 
 P4 does not include autonomous organ promotion, automatic removal, dependency addition, live activation, GUI registry management, or remote/cloud registry sync.

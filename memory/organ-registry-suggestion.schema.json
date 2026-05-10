@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopoietic-os.local/schemas/organ-registry-suggestion.schema.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "reviewed_at",
+    "registry_source",
+    "promotion_source",
+    "generation_source",
+    "source_statuses",
+    "registered_organs",
+    "observed_changed_organs",
+    "candidates"
+  ],
+  "properties": {
+    "schema_version": { "const": "0.1.0" },
+    "reviewed_at": { "type": "string", "format": "date-time" },
+    "registry_source": { "type": "string" },
+    "promotion_source": { "type": "string" },
+    "generation_source": { "type": "string" },
+    "source_statuses": {
+      "type": "object",
+      "required": ["registry", "promotions", "generations"],
+      "properties": {
+        "registry": { "$ref": "#/$defs/source_status" },
+        "promotions": { "$ref": "#/$defs/source_status" },
+        "generations": { "$ref": "#/$defs/source_status" }
+      },
+      "additionalProperties": false
+    },
+    "registered_organs": { "$ref": "#/$defs/organ_names" },
+    "observed_changed_organs": { "$ref": "#/$defs/organ_names" },
+    "candidates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/suggestion" }
+    },
+    "limits": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "source_status": {
+      "type": "string",
+      "pattern": "^(loaded:[0-9]+|missing:treated-as-empty)$"
+    },
+    "organ_names": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "string_map": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "suggestion": {
+      "type": "object",
+      "required": ["name", "reason"],
+      "properties": {
+        "name": { "type": "string" },
+        "reason": { "type": "string" },
+        "observed_in": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "evidence": { "$ref": "#/$defs/string_map" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

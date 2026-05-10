@@ -48,7 +48,11 @@ jobs:
           python -m json.tool memory/mutation.schema.json >/dev/null
           python -m json.tool memory/effect.schema.json >/dev/null
           python -m json.tool memory/generation.schema.json >/dev/null
+          python -m json.tool memory/evidence-bundle.schema.json >/dev/null
+          python -m json.tool memory/install-seed-manifest.schema.json >/dev/null
           python -m json.tool memory/organ.schema.json >/dev/null
+          python -m json.tool memory/organ-review.schema.json >/dev/null
+          python -m json.tool memory/organ-registry-suggestion.schema.json >/dev/null
           python -m json.tool memory/self-state.schema.json >/dev/null
           for ledger in memory/*.jsonl; do
             while IFS= read -r line; do

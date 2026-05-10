@@ -14,13 +14,14 @@ This repository currently implements the first development slice:
 - a boot-verified observe-only ISO baseline with VM checks;
 - a P1 offline mutation verifier for draft patch proposals;
 - a P2 VM-tested promotion gate for verified mutations;
-- an initial P3 install-plan entrypoint that links promoted mutations to generation lineage records without running a live install.
+- an initial P3 install-plan entrypoint that links promoted mutations to generation lineage records without running a live install;
+- an initial P4 organ registry and read-only decay/suggestion review path.
 
 ## Initial contract
 
 The first milestone is not autonomous mutation. It is self-observation: the OS should be able to read itself as Nix structure and produce machine-readable state for later patch synthesis.
 
-The current repository state is the **initial P3 install-plan and generation lineage link**: mutation proposals can be verified in an isolated worktree, replayed into an isolated promotion worktree for NixOS VM checks, then converted into a dry-run install plan and generation lineage record. The P0 ISO baseline remains boot-verified with test-instrumented detailed checks and production BIOS/UEFI black-box boot checks. See [`docs/phases.md`](docs/phases.md), [ADR 0012](docs/adr/0012-p0-iso-verification-boundary.md), [ADR 0013](docs/adr/0013-p1-offline-mutation-verifier-boundary.md), [ADR 0015](docs/adr/0015-p2-vm-tested-mutation-promotion-boundary.md), and [ADR 0014](docs/adr/0014-p3-install-workflow-and-generation-lineage-boundary.md).
+The current repository state is the **initial P4 organ registry and decay review**: mutation proposals can be verified in an isolated worktree, replayed into an isolated promotion worktree for NixOS VM checks, converted into a dry-run install plan and generation lineage record, and reviewed as explicit organs without live mutation or automatic deletion. The P0 ISO baseline remains boot-verified with test-instrumented detailed checks and production BIOS/UEFI black-box boot checks. See [`docs/phases.md`](docs/phases.md), [ADR 0012](docs/adr/0012-p0-iso-verification-boundary.md), [ADR 0013](docs/adr/0013-p1-offline-mutation-verifier-boundary.md), [ADR 0015](docs/adr/0015-p2-vm-tested-mutation-promotion-boundary.md), [ADR 0014](docs/adr/0014-p3-install-workflow-and-generation-lineage-boundary.md), and [ADR 0017](docs/adr/0017-p4-organ-registry-and-decay-review-boundary.md).
 
 ## Quick start
 
@@ -33,7 +34,8 @@ mutation-runner promote --proposal path/to/proposal.json --parent-genome git:<re
 mutation-runner install-plan --mutation-id mut-example --target-root /mnt/autopoietic --parent-generation gen-parent --resulting-generation gen-child --evidence-bundle memory/evidence/p3-plan.json
 mutation-runner install-verify --plan path/to/install-plan.json --evidence-bundle memory/evidence/p3-verify.json
 mutation-journal organ add --name mutation-journal --type cli --source crates/mutation-journal --purpose "append Autopoietic OS memory records" --decay-status active
-mutation-journal organ review --path memory/organs.jsonl
+mutation-journal organ review --path memory/organs.jsonl --evidence-bundle memory/evidence/p4-review.json
+mutation-journal organ suggest --registry memory/organs.jsonl --promotions memory/mutation-promotions.jsonl --generations memory/generations.jsonl --evidence-bundle memory/evidence/p4-suggest.json
 ```
 
 For authored mutations, prefer `proposal.json` plus a sibling `patch.diff`; inline JSON patch strings are supported mainly for small tests and compatibility.
